@@ -74,18 +74,25 @@ greeting_prompt = PromptTemplate.from_template(
 )
 
 test_prompt = PromptTemplate.from_template(
-    "Determine whether the input below is a greeting, a question about Data Structures and Algorithms, or a greeting followed by a question. "
+    "Determine whether the input below is a greeting, a question about Data Structures and Algorithms, a general statement, or a greeting followed by a question. "
     "If it is only a greeting, return 'greeting'. If it is a concept-related question or a greeting followed by a question, return 'concept'. "
-    "If the input is a general conversational phrase like 'how are you', treat it as a greeting. "
+    "If it is a general conversational statement or comment that is not directly a question about Data Structures or a greeting, return 'general'. "
+    "If the input is unclear or cannot be categorized, return 'unclear'. "
+    "Consider that the input may contain typos or minor variations, but still classify it based on intent.\n"
     "Examples:\n"
     "1. Input: 'hello'\nOutput: 'greeting'\n"
-    "2. Input: 'hi, how are you?'\nOutput: 'greeting'\n"
-    "3. Input: 'can you explain recursion?'\nOutput: 'concept'\n"
-    "4. Input: 'hey, tell me about linked lists'\nOutput: 'concept'\n"
-    "5. Input: 'hello, what is an AVL tree?'\nOutput: 'concept'\n"
-    "6. Return only 'greeting' or 'concept'.\n"
+    "2. Input: 'helo'\nOutput: 'greeting'\n"
+    "3. Input: 'hi, how are you?'\nOutput: 'greeting'\n"
+    "4. Input: 'can you explain recursion?'\nOutput: 'concept'\n"
+    "5. Input: 'hey, tell me about linked lists'\nOutput: 'concept'\n"
+    "6. Input: 'helo chat bot what is an array?'\nOutput: 'concept'\n"
+    "7. Input: 'hello, what is an AVL tree?'\nOutput: 'concept'\n"
+    "8. Input: 'so you are able to read my typo'\nOutput: 'general'\n"
+    "9. Return only 'greeting', 'concept', 'general', or 'unclear'.\n"
     "Input: {user_input}"
 )
+
+
 
 # Function to generate a dynamic greeting
 def generate_greeting():
@@ -98,33 +105,50 @@ def generate_greeting():
 # Function to classify user input using the custom example selector
 def classify_input(user_input):
     try:
-        selected_example = example_selector.select_examples({"user_input": user_input})[0]
-        return selected_example["output"].lower()
+        formatted_prompt = test_prompt.format(user_input=user_input)
+        classification = llm.invoke(formatted_prompt).strip().lower()
+
+        # Remove any extra single or double quotes from the classification output
+        classification = classification.replace("'", "").replace('"', "")
+
+        # Debugging: Print classification to verify output
+        print(f"Classification: '{classification}'")
+        return classification
     except Exception as e:
-        return f"Error: {e}"
+            return f"Error: {e}"
 
 # Function to handle user input
 def insert_input(user_input):
-    # Classify the input as either a greeting or a concept query
-    # classification = classify_input(user_input)
+    # Classify the input as either a greeting, concept, general statement, or unclear
     formatted_prompt = test_prompt.format(user_input=user_input)
-    classification = llm.invoke(formatted_prompt)
-    print(classification)
+    classification = llm.invoke(formatted_prompt).strip().lower()
+
+    # Remove any extra single or double quotes from the classification output
+    classification = classification.replace("'", "").replace('"', "")
+
+    # Debugging: Print classification to verify output
+    print(f"Classification: '{classification}'")
 
     if classification == "greeting":
-        # If the input is classified as a greeting, respond with a dynamic greeting
+        print("Classified as a greeting")
         return generate_greeting()
     elif classification == "concept":
-        # If the input is a conceptual query, pass it to the LLM to generate an explanation
+        print("Classified as a concept query")
         try:
             formatted_prompt = concept_prompt.format(concept=user_input)
             response = llm.invoke(formatted_prompt)
             return response
         except Exception as e:
             return f"Error: {e}"
+    elif classification == "general":
+        print("Classified as a general statement")
+        return "Thank you for your comment. I'm here to assist you with any questions related to Data Structures and Algorithms. Let me know if you have anything specific you'd like to explore."
     else:
-        # If classification is unclear, ask the user for clarification
+        print("Classified as unclear")
         return "I'm here to help with Data Structures and Algorithms! Could you please specify what you'd like me to explain?"
+
+
+
 
 # Main execution for testing purposes
 if __name__ == "__main__":
