@@ -1,112 +1,109 @@
-# Import necessary libraries
+import streamlit as st
+from st_chat_message import message
+import pandas as pd
+import numpy as np
+from openai import OpenAI
 from langchain_community.llms import Ollama
+from langchain.schema import (AIMessage, HumanMessage, SystemMessage)
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
-from langchain_core.example_selectors.base import BaseExampleSelector
-from langchain.chains import LLMChain
-import getpass
-import os
+from langchain_core.prompts import PromptTemplate
+from main import insert_input
 
-# Initialize the LLM
+# Example markdown in Streamlit
+markdown = """
+### HTML in markdown is ~quite~ **unsafe**
+<blockquote>
+  However, if you are in a trusted environment (you trust the markdown). You can use allow_html props to enable support for html.
+</blockquote>
+
+* Lists
+* [ ] todo
+* [x] done
+
+Math:
+
+Lift($L$) can be determined by Lift Coefficient ($C_L$) like the following
+equation.
+
+$$
+L = \\frac{1}{2} \\rho v^2 S C_L
+$$
+
+~~~py
+import streamlit as st
+
+st.write("Python code block")
+~~~
+
+~~~js
+console.log("Here is some JavaScript code")
+~~~
+
+"""
+
+def on_input_change():
+    user_input = st.session_state.user_input
+    st.session_state.user.append(user_input)
+    # response = llm.invoke(user_input)
+    # response = chain.invoke(user_input)
+    response = insert_input(user_input)
+    st.session_state.generated.append(response)
+
+def on_btn_click():
+    del st.session_state.user[:]
+    del st.session_state.generated[:]
+    
+st.session_state.setdefault(
+    'user', 
+    []
+)
+st.session_state.setdefault(
+    'generated', 
+    []
+)
+
+# Initialize the model with the base_url where it is running
 llm = Ollama(model="gemma2:2b", base_url="http://localhost:11434")
 
-# Create the prompt template to explain concepts
-concept_prompt = ChatPromptTemplate.from_template(
-    "You are a friendly and approachable Data Structures and Algorithms Expert. "
-    "Explain the concept below in simple bullet points that are easy to understand, "
-    "and follow up with a related question to engage the user: {concept}"
-)
+# prompt_template = """
+# You are a Data Structures and Algorithms Expert specializing in explaining complex concepts in a simple, structured manner. 
 
-# Create the prompt template for a dynamic greeting
-greeting_prompt = PromptTemplate.from_template(
-    "You are a friendly assistant who specializes in Data Structures and Algorithms. The user has greeted you. "
-    "Respond with a warm and dynamic greeting, and mention that you are here to help with any Data Structures and Algorithms questions they have."
-)
+# Based on the concept of {concept}, provide a clear and detailed explanation in bullet points, including examples where appropriate, and summarize key takeaways.
 
-test_prompt = PromptTemplate.from_template(
-    "Determine whether the input below is a greeting, a question about Data Structures and Algorithms, a general statement, or a greeting followed by a question. "
-    "If it is only a greeting, return 'greeting'. If it is a concept-related question or a greeting followed by a question, return 'concept'. "
-    "If it is a general conversational statement or comment that is not directly a question about Data Structures or a greeting, return 'general'. "
-    "If the input is unclear or cannot be categorized, return 'unclear'. "
-    "Consider that the input may contain typos or minor variations, but still classify it based on intent.\n"
-    "Examples:\n"
-    "1. Input: 'hello'\nOutput: 'greeting'\n"
-    "2. Input: 'helo'\nOutput: 'greeting'\n"
-    "3. Input: 'hi, how are you?'\nOutput: 'greeting'\n"
-    "4. Input: 'can you explain recursion?'\nOutput: 'concept'\n"
-    "5. Input: 'hey, tell me about linked lists'\nOutput: 'concept'\n"
-    "6. Input: 'helo chat bot what is an array?'\nOutput: 'concept'\n"
-    "7. Input: 'hello, what is an AVL tree?'\nOutput: 'concept'\n"
-    "8. Input: 'so you are able to read my typo'\nOutput: 'general'\n"
-    "9. Return only 'greeting', 'concept', 'general', or 'unclear'.\n"
-    "Input: {user_input}"
-)
+# If the input is unclear, ask for clarification, until you are 95%\ certain. For example: "Could you please provide more details about the concept you'd like me to explain?"
+# """
+# prompt = PromptTemplate(
+#     input_variables=['concept'],
+#     template=prompt_template
+# )
 
+# chain = prompt | llm | StrOutputParser()
+# response = llm.invoke(prompt.format(concept="Insertion Sort"))
+# print(response)
 
+# print(chain.invoke("Insertion Sort"))
 
-# Function to generate a dynamic greeting
-def generate_greeting():
-    try:
-        greeting_response = llm.invoke(greeting_prompt.format())
-        return greeting_response
-    except Exception as e:
-        return f"Error: {e}"
+# Set up Streamlit interface
+st.title("Chat with LLM")
 
-# Function to classify user input using the custom example selector
-def classify_input(user_input):
-    try:
-        formatted_prompt = test_prompt.format(user_input=user_input)
-        classification = llm.invoke(formatted_prompt).strip().lower()
+chat_placeholder = st.empty()
 
-        # Remove any extra single or double quotes from the classification output
-        classification = classification.replace("'", "").replace('"', "")
+# Create a container for the chat UI
+with chat_placeholder.container():
+    for i in range(len(st.session_state['generated'])):                
+        message(st.session_state['user'][i], is_user=True, key=f"{i}_user")
+        message(
+            # st.session_state['generated'][i]['data'], 
+            # key=f"{i}", 
+            # allow_html=True,
+            # is_table=True if st.session_state['generated'][i]['type']=='table' else False
+            st.session_state['generated'][i],
+            key=f"{i}",
+            # allow_html=True
+        )
+    
+    st.button("Clear message", on_click=on_btn_click)
 
-        # Debugging: Print classification to verify output
-        print(f"Classification: '{classification}'")
-        return classification
-    except Exception as e:
-            return f"Error: {e}"
-
-# Function to handle user input
-def insert_input(user_input):
-    # Classify the input as either a greeting, concept, general statement, or unclear
-    formatted_prompt = test_prompt.format(user_input=user_input)
-    classification = llm.invoke(formatted_prompt).strip().lower()
-
-    # Remove any extra single or double quotes from the classification output
-    classification = classification.replace("'", "").replace('"', "")
-
-    # Debugging: Print classification to verify output
-    print(f"Classification: '{classification}'")
-
-    if classification == "greeting":
-        print("Classified as a greeting")
-        return generate_greeting()
-    elif classification == "concept":
-        print("Classified as a concept query")
-        try:
-            formatted_prompt = concept_prompt.format(concept=user_input)
-            response = llm.invoke(formatted_prompt)
-            return response
-        except Exception as e:
-            return f"Error: {e}"
-    elif classification == "general":
-        print("Classified as a general statement")
-        return "Thank you for your comment. I'm here to assist you with any questions related to Data Structures and Algorithms. Let me know if you have anything specific you'd like to explore."
-    else:
-        print("Classified as unclear")
-        return "I'm here to help with Data Structures and Algorithms! Could you please specify what you'd like me to explain?"
-
-
-
-
-# Main execution for testing purposes
-if __name__ == "__main__":
-    user_input = ""
-    while user_input.lower() != "bye":
-        user_input = input("Enter your query: ")
-        if user_input.lower() == "bye":
-            print("Goodbye!")
-            break
-        response = insert_input(user_input)
-        print(response)
+with st.container():
+    st.text_input("User Input:", on_change=on_input_change, key="user_input")
+            

@@ -6,7 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
 async def load_pages():
-    file_path = r"C:/Users/elroy/OneDrive/Desktop/Personal/Elroy/chatbot/chatbot/introduction-to-algorithms-fixed.pdf"
+    file_path = r"data/books/introduction-to-algorithms-fixed.pdf"
     loader = PyPDFLoader(file_path)
     pages = []
     async for page in loader.alazy_load():
@@ -14,8 +14,8 @@ async def load_pages():
     return pages
 
 text_splitter = Rec(
-    chunk_size=1000,
-    chunk_overlap=500,
+    chunk_size=250,
+    chunk_overlap=50,
     length_function=len,
     add_start_index=True
 )
@@ -33,16 +33,16 @@ embeddings = embeddings_model.embed_documents(
 
 embedded_query = embeddings_model.embed_query("When was Einstein's birthday?")
 
-# Calculate cosine similarity
-similarities = cosine_similarity([embedded_query], embeddings)[0]
+# # Calculate cosine similarity
+# similarities = cosine_similarity([embedded_query], embeddings)[0]
 
-# Sort documents by similarity
-sorted_indices = np.argsort(similarities)[::-1]  # Sort in descending order
+# # Sort documents by similarity
+# sorted_indices = np.argsort(similarities)[::-1]  # Sort in descending order
 
-# Print the most similar documents
-for idx in sorted_indices:
-    print(f"Similarity: {similarities[idx]}\n")
-    
+# # Print the most similar documents
+# for idx in sorted_indices:
+#     print(f"Similarity: {similarities[idx]}\n")
+
 # import chromadb
 # CHROMA_PATH = "chroma"
 
