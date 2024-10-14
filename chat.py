@@ -7,7 +7,7 @@ from langchain_community.llms import Ollama
 from langchain.schema import (AIMessage, HumanMessage, SystemMessage)
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
-from main import insert_input
+from prompt_engineering import insert_input
 
 # Example markdown in Streamlit
 markdown = """

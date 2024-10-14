@@ -4,6 +4,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter as Rec
 from langchain_huggingface import HuggingFaceEmbeddings
 from utils.rank_bm25 import find_closest_chunks_bm25
 
+## Load the pages from the PDF
+# Need to find a better parser for the PDF
 async def load_pages():
     file_path = r"data/books/introduction-to-algorithms-trimmed.pdf"
     loader = PyPDFLoader(file_path)

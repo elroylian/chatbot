@@ -3,7 +3,7 @@ import nltk
 from transformers import AutoTokenizer
 
 def ensure_nltk_data(package_name, nltk_data_path):
-    if package_name == "punkt":
+    if package_name == "punkt" or package_name == "punkt_tab":
         package_dir = os.path.join(nltk_data_path, "tokenizers", package_name)
         zip_file = os.path.join(package_dir, "tokenizers",f"{package_name}.zip")
     else:
@@ -27,8 +27,9 @@ nltk_data_path = nltk.data.path[0]
 
 # Ensure the NLTK data is downloaded
 ensure_nltk_data("punkt", nltk_data_path)
+ensure_nltk_data("punkt_tab", nltk_data_path)
 
-def get_sentence_chunks(text, tokenizer, min_chunk_size=150, max_chunk_size=250, chunk_overlap=True):
+def get_sentence_chunks(text, tokenizer, min_chunk_size=200, max_chunk_size=250, chunk_overlap=True):
     try:
         # Tokenize the text into sentences
         sentences = nltk.sent_tokenize(text)
@@ -37,15 +38,15 @@ def get_sentence_chunks(text, tokenizer, min_chunk_size=150, max_chunk_size=250,
         chunks = []  # List to hold all the chunks
         current_chunk = []  # Temporary storage for the current chunk
         current_length = 0  # Keeps track of the current chunk's length
-        last_sentence = []  # Holds the tokens of the last sentence in the chunk, if overlap is enabled
-        
+        overlap_size = 50  # Overlap part of the last sentence if needed
+
         # Process each sentence
         for sentence in sentences:
             # Tokenize the sentence
             sentence_tokens = tokenizer.encode(sentence, add_special_tokens=False)
             sentence_length = len(sentence_tokens)
             
-            # Handle the case where the sentence is longer than the max_chunk_size
+            # Handle the case where the sentence is longer than max_chunk_size
             if sentence_length > max_chunk_size:
                 # Split the sentence into multiple chunks
                 for i in range(0, sentence_length, max_chunk_size):
@@ -54,27 +55,24 @@ def get_sentence_chunks(text, tokenizer, min_chunk_size=150, max_chunk_size=250,
             else:
                 # Check if adding the sentence to the current chunk will exceed max_chunk_size
                 if current_length + sentence_length > max_chunk_size:
-                    # If chunk overlap is enabled, keep the last sentence of the current chunk
-                    if chunk_overlap and last_sentence:
-                        current_chunk.extend(last_sentence)
-                        current_length += len(last_sentence)
-                    
-                    # Append the current chunk to the chunks list
-                    chunks.append(tokenizer.decode(current_chunk))
-                    
-                    # Start a new chunk with the current sentence
-                    current_chunk = sentence_tokens
-                    current_length = sentence_length
+                    # If chunk overlap is enabled, keep a part of the last sentence for overlap
+                    if chunk_overlap and current_length >= min_chunk_size:
+                        # Adjust to keep only part of the last sentence
+                        overlap_tokens = current_chunk[-overlap_size:] if len(current_chunk) >= overlap_size else current_chunk
+                        chunks.append(tokenizer.decode(current_chunk))  # Save the current chunk
+                        current_chunk = overlap_tokens  # Start new chunk with overlap
+                        current_length = len(current_chunk)
+                    else:
+                        chunks.append(tokenizer.decode(current_chunk))  # Save the current chunk
+                        current_chunk = sentence_tokens  # Start a new chunk with the current sentence
+                        current_length = sentence_length
                 else:
                     # Add the sentence to the current chunk
                     current_chunk.extend(sentence_tokens)
                     current_length += sentence_length
-            
-            # Store the last sentence for overlapping
-            last_sentence = sentence_tokens
         
         # Append any remaining chunk that was not added
-        if current_chunk:
+        if current_chunk and len(current_chunk) >= min_chunk_size:
             chunks.append(tokenizer.decode(current_chunk))
         
         return chunks
@@ -82,6 +80,7 @@ def get_sentence_chunks(text, tokenizer, min_chunk_size=150, max_chunk_size=250,
     except Exception as e:
         print(f"An error occurred: {e}")
         return []
+
 
 # Example usage
 if __name__ == "__main__":
@@ -110,7 +109,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/multi-qa-MiniLM-L6-cos-v1")
     
     # Call the function to get sentence chunks
-    chunks = get_sentence_chunks(text, tokenizer, min_chunk_size=50, max_chunk_size=100, chunk_overlap=True)
+    chunks = get_sentence_chunks(text, tokenizer, min_chunk_size=250, max_chunk_size=50, chunk_overlap=True)
     
     # Output the chunks
     for i, chunk in enumerate(chunks, 1):
