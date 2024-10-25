@@ -19,7 +19,6 @@ llm = ChatOpenAI(
 # from langchain_ollama import OllamaLLM
 # llm = OllamaLLM(model="gemma2:2b", base_url="http://localhost:11434")
 
-run_init()
 retriever = get_retriever()
 ### Contextualize question ###
 contextualize_q_system_prompt = (
