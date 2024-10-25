@@ -12,4 +12,3 @@ nltk
 langchain-text-splitters
 transformers
 protobuf==3.20.3
-pysqlite3
