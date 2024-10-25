@@ -8,8 +8,15 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage
+from utils.init import get_retriever
 
-from utils.init import get_retriever, run_init
+#### Fixing the sqlite3 error for Streamlit Deployment ####
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+from utils.init import get_retriever
+
+# Initialize the LLM
 
 llm = ChatOpenAI(
     model="gpt-4o-mini",
