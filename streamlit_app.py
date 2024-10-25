@@ -13,7 +13,8 @@ from utils.init import get_retriever, run_init
 
 llm = ChatOpenAI(
     model="gpt-4o-mini",
-    api_key=os.environ.get("OPENAI_API_KEY"),
+    # api_key=os.environ.get("OPENAI_API_KEY"),
+    api_key=st.secrets["OpenAI_key"]
 )
 
 # from langchain_ollama import OllamaLLM
