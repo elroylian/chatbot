@@ -4,7 +4,6 @@ langchain-core
 langchain
 langchain-openai
 langchain-chroma
-chromadb
 sentence-transformers
 langchain-ollama
 rank_bm25
@@ -12,3 +11,4 @@ nltk
 langchain-text-splitters
 transformers
 protobuf==3.20.3
+pysqlite3-binary
