@@ -12,7 +12,7 @@ A simple chatbot using Retrieval-Augmented Generation (RAG) to help students wit
    ```
 2. Install dependencies:
    ```bash
-   ...
+   pip install -r requirements.txt
    ```
 3. Run the app:
    ```bash

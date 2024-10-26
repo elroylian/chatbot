@@ -10,14 +10,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage
 from utils.init import get_retriever
 
-#### Fixing the sqlite3 error for Streamlit Deployment ####
-# __import__('pysqlite3')
-# import sys
-# sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-from utils.init import get_retriever
-
 # Initialize the LLM
-
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     # api_key=os.environ.get("OPENAI_API_KEY"),
@@ -71,8 +64,28 @@ qa_prompt = ChatPromptTemplate.from_messages(
 
 st.title("DSA Chatbot")
 
-# Set OpenAI API key from Streamlit secrets
-# client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# Add sidebar options
+st.sidebar.title("Options")
+if st.sidebar.button("Clear Chat History"):
+    st.session_state["llm_chat_history"] = []
+    st.session_state.messages = []
+    
+# Add file uploader to sidebar
+uploaded_file = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx"])
+
+# Process the uploaded file if available
+if uploaded_file is not None:
+    file_details = {
+        "filename": uploaded_file.name,
+        "filetype": uploaded_file.type,
+        "filesize": uploaded_file.size
+    }
+    st.sidebar.write("File Details:", file_details)
+    # Process file content if needed; for example, reading and displaying content:
+    if uploaded_file.type == "text/plain":
+        file_content = uploaded_file.read().decode("utf-8")
+        st.sidebar.write("File Content:", file_content)
+    # Processing for other file types below
 
 # Initialize LLM chat history (for context handling)
 if "llm_chat_history" not in st.session_state:

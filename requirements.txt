@@ -4,6 +4,7 @@ langchain-core
 langchain
 langchain-openai
 langchain-chroma
+chromadb
 sentence-transformers
 langchain-ollama
 rank_bm25
