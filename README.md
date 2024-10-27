@@ -14,7 +14,11 @@ A simple chatbot using Retrieval-Augmented Generation (RAG) to help students wit
    ```bash
    pip install -r requirements.txt
    ```
-3. Run the app:
+3. Split Documents into Chunks and store in DB
+   ```bash
+   Ensure you have the necessary data in the path "data/books/"
+   ```
+4. Run the app:
    ```bash
    streamlit run app.py
    ```
