@@ -8,7 +8,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage
-from utils.init import get_retriever
+from utils.chunk_doc import get_retriever
 
 # Initialize the LLM
 llm = ChatOpenAI(
@@ -44,12 +44,14 @@ history_aware_retriever = create_history_aware_retriever(
 
 ### Answer question
 system_prompt = (
-    "You are an Data Structure & Algorithms(DSA) assistant for question-answering tasks. "
-    "Use the following pieces of retrieved context to answer "
-    "the question. If the answer is not in the retrieved context,"
-    "say that you don't know. If you do not understand the question"
-    "or need more context, ask for clarification."
-    # "Use three sentences maximum and keep the answer concise."
+    # "You are a Data Structures and Algorithms (DSA) assistant. Only answer questions specifically related to Data Structures topics or code implementations."
+    # "If a question is not about Data Structures and Algorithms, reply with: "
+    # "'I'm here to help with Data Structures and Algorithms topics only. Could you specify a question on arrays, trees, graphs, or similar data structures?'"
+    # "Use only the provided context to answer the question. If the answer is not in the retrieved context, "
+    # "say that you don't know."
+    "You are an assistant specializing in Data Structures and Algorithms (DSA), but you can also answer general questions. "
+    "If the question is about DSA, use the provided context to answer. If the answer is not in the context, "
+    "say you don’t know. For general questions outside of DSA, provide the best answer you can, or politely redirect if necessary."
     "\n\n"
     "{context}"
 )

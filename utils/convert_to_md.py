@@ -1,7 +1,4 @@
 # Description: This script converts a PDF file to a Markdown 
-import pymupdf4llm
-import pathlib
-
 import pathlib
 import os
 import pymupdf4llm
@@ -55,6 +52,3 @@ def convert_all_pdfs_to_md():
 
     except Exception as e:
         print(f"Error: {e}")
-
-# if __name__ == "__main__":
-#     convert_all_pdfs_to_md()
