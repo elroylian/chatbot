@@ -2,7 +2,7 @@
 
 ## Overview
 
-A simple chatbot using Retrieval-Augmented Generation (RAG) to help students with Data Structures and Algorithms (DSA). It provides explanations, quizzes, and guides users through DSA topics step-by-step.
+A simple chatbot using Retrieval-Augmented Generation (RAG) to help students with Data Structures and Algorithms (DSA). It provides explanations and guides users through DSA topics step-by-step.
 
 ## Setup
 
@@ -15,9 +15,8 @@ A simple chatbot using Retrieval-Augmented Generation (RAG) to help students wit
    pip install -r requirements.txt
    ```
 3. Split Documents into Chunks and store in DB
-   ```bash
-   # Ensure you have the necessary data in the path "data/books/"
-   Run the cell in initial.ipynb
+   - Ensure you have the necessary data in the path "data/books/"
+   - Run the cell in initial.ipynb to split the documents into chunks and store it in local DB
    ```
 4. Run the app:
    ```bash
