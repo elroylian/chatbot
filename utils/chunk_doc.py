@@ -116,7 +116,7 @@ from typing import List
 
 class MyEmbeddings(Embeddings):
         def __init__(self):
-            self.model = SentenceTransformer('sentence-transformers/multi-qa-MiniLM-L6-cos-v1')
+            self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
     
         def embed_documents(self, texts: List[str]) -> List[List[float]]:
             return [self.model.encode(t).tolist() for t in texts]
@@ -162,8 +162,8 @@ def split_chunks():
             
             ## Chunk Method 3: Recursive Character Chunking
             text_splitter = Rec(
-                chunk_size=1000,
-                chunk_overlap=200,
+                chunk_size=2000,
+                chunk_overlap=500,
                 length_function=len,
                 add_start_index=True
             )
@@ -188,6 +188,7 @@ def split_chunks():
         
 def get_retriever():
     retriever = vector_store.as_retriever(
+        #
         search_type="mmr",
         search_kwargs={"k": 10, "fetch_k": 20, "lambda_mult": 0.5},
     )
