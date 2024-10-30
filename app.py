@@ -20,6 +20,7 @@ llm = ChatOpenAI(
 # from langchain_ollama import OllamaLLM
 # llm = OllamaLLM(model="gemma2:2b", base_url="http://localhost:11434")
 
+
 retriever = get_retriever()
 ### Contextualize question ###
 contextualize_q_system_prompt = (
@@ -44,16 +45,15 @@ history_aware_retriever = create_history_aware_retriever(
 
 ### Answer question
 system_prompt = (
-    # "You are a Data Structures and Algorithms (DSA) assistant. Only answer questions specifically related to Data Structures topics or code implementations."
-    # "If a question is not about Data Structures and Algorithms, reply with: "
-    # "'I'm here to help with Data Structures and Algorithms topics only. Could you specify a question on arrays, trees, graphs, or similar data structures?'"
-    # "Use only the provided context to answer the question. If the answer is not in the retrieved context, "
-    # "say that you don't know."
-    "You are an assistant specializing in Data Structures and Algorithms (DSA), but you can also answer general questions. "
-    "If the question is about DSA, use the provided context to answer. If the answer is not in the context, "
-    "say you don’t know. For general questions outside of DSA, provide the best answer you can, or politely redirect if necessary."
-    "\n\n"
-    "{context}"
+    "You are an assistant specializing in Data Structures and Algorithms (DSA) and code implementations. Only answer questions that are directly related to DSA topics or involve code implementations. "
+    "If the question is not specifically about DSA or programming code, do not answer, even if relevant context is available. "
+    "For unrelated questions, redirect to talk more about the topic. "
+    "\n\n{context}"
+    # "You are an assistant specializing in Data Structures and Algorithms (DSA), but you can also answer general questions. "
+    # "If the question is about DSA, use the provided context to answer. If the answer is not in the context, "
+    # "say you don’t know. For general questions outside of DSA, provide the best answer you can, or politely redirect if necessary."
+    # "\n\n"
+    # "{context}"
 )
 
 qa_prompt = ChatPromptTemplate.from_messages(
