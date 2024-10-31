@@ -4,11 +4,18 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains import create_retrieval_chain
 from langchain.chains import create_history_aware_retriever
 from langchain_core.prompts import MessagesPlaceholder
+from langchain_core.output_parsers import StrOutputParser
 from langchain.chains.combine_documents import create_stuff_documents_chain
 import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage
 from utils.chunk_doc import get_retriever
+from operator import itemgetter
+
+os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
+os.environ['LANGCHAIN_API_KEY_CHATBOT']= st.secrets["Langchain_key"]
+os.environ['LANGCHAIN_PROJECT']="chatbot"
 
 # Initialize the LLM
 llm = ChatOpenAI(
@@ -39,9 +46,18 @@ contextualize_q_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-history_aware_retriever = create_history_aware_retriever(
-    llm, retriever, contextualize_q_prompt
+# Create contextual retrieval chain
+contextual_query_chain = (
+    {
+        "chat_history": itemgetter("chat_history"),
+        "input": itemgetter("input")
+    }
+    | contextualize_q_prompt
+    | llm
+    | StrOutputParser()
 )
+
+retriever_chain = contextual_query_chain | retriever
 
 ### Answer question
 system_prompt = (
@@ -62,6 +78,17 @@ qa_prompt = ChatPromptTemplate.from_messages(
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ]
+)
+
+rag_chain = (
+    {
+        "context": retriever_chain,
+        "chat_history": itemgetter("chat_history"),
+        "input": itemgetter("input"),
+    }
+    | qa_prompt
+    | llm
+    | StrOutputParser()
 )
 
 st.title("DSA Chatbot")
@@ -121,15 +148,15 @@ if prompt := st.chat_input("What is up?"):
         # Initialize an empty list to hold the streamed chunks
         stream = []
         
-        # Create a chain of components to process the input
-        question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-        rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
-        
         # Stream the response from the RAG chain for a specific input
-        for chunk in rag_chain.stream({"input": prompt, "chat_history": llm_chat_history}):
-            if answer_chunk := chunk.get("answer"):
-                # Append the answer chunk to the stream list
-                stream.append(answer_chunk)
+        for chunk in rag_chain.stream({
+            "input": prompt, 
+            "chat_history": llm_chat_history
+            }):
+            # if answer_chunk := chunk.get("answer"):
+            #     # Append the answer chunk to the stream list
+            #     stream.append(answer_chunk)
+            stream.append(chunk)
 
         # Join the list of chunks to form the complete response
         full_response = st.write_stream(stream)
@@ -141,6 +168,6 @@ if prompt := st.chat_input("What is up?"):
                 AIMessage(content=full_response),
             ]
         )
-        print(llm_chat_history)
+
         # Display the full response in the chat message container
     st.session_state.messages.append({"role": "assistant", "content": full_response})
