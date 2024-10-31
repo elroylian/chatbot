@@ -194,3 +194,6 @@ def get_retriever():
     )
     
     return retriever
+
+def get_vector_store():
+    return vector_store    

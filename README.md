@@ -17,7 +17,6 @@ A simple chatbot using Retrieval-Augmented Generation (RAG) to help students wit
 3. Split Documents into Chunks and store in DB
    - Ensure you have the necessary data in the path "data/books/"
    - Run the cell in initial.ipynb to split the documents into chunks and store it in local DB
-   ```
 4. Run the app:
    ```bash
    streamlit run app.py
