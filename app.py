@@ -10,12 +10,14 @@ import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage
 from utils.chunk_doc import get_retriever
+from prompt_templates.contextual_query import get_context_query_chain
+from prompt_templates.qa_template import get_qa_prompt
 from operator import itemgetter
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
 os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
-os.environ['LANGCHAIN_API_KEY_CHATBOT']= st.secrets["Langchain_key"]
-os.environ['LANGCHAIN_PROJECT']="chatbot"
+os.environ['LANGCHAIN_API_KEY_CHATBOT']= st.secrets["EXTRA_Langchain_key"]
+os.environ['LANGCHAIN_PROJECT']="chatbot-test"
 
 # Initialize the LLM
 llm = ChatOpenAI(
@@ -29,57 +31,11 @@ llm = ChatOpenAI(
 
 
 retriever = get_retriever()
-### Contextualize question ###
-contextualize_q_system_prompt = (
-    "Given a chat history and the latest user question "
-    "which might reference context in the chat history, "
-    "formulate a standalone question which can be understood "
-    "without the chat history. Do NOT answer the question, "
-    "just reformulate it if needed and otherwise return it as is."
-)
 
-contextualize_q_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", contextualize_q_system_prompt),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-    ]
-)
-
-# Create contextual retrieval chain
-contextual_query_chain = (
-    {
-        "chat_history": itemgetter("chat_history"),
-        "input": itemgetter("input")
-    }
-    | contextualize_q_prompt
-    | llm
-    | StrOutputParser()
-)
-
+contextual_query_chain = get_context_query_chain(llm)
 retriever_chain = contextual_query_chain | retriever
 
-### Answer question
-system_prompt = (
-    "You are an assistant specializing in Data Structures and Algorithms (DSA) and code implementations. Only answer questions that are directly related to DSA topics or involve code implementations. "
-    "If the question is not specifically about DSA or programming code, do not answer, even if relevant context is available. "
-    "For unrelated questions, redirect to talk more about the topic. "
-    "\n\n{context}"
-    # "You are an assistant specializing in Data Structures and Algorithms (DSA), but you can also answer general questions. "
-    # "If the question is about DSA, use the provided context to answer. If the answer is not in the context, "
-    # "say you don’t know. For general questions outside of DSA, provide the best answer you can, or politely redirect if necessary."
-    # "\n\n"
-    # "{context}"
-)
-
-qa_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", system_prompt),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-    ]
-)
-
+qa_prompt = get_qa_prompt()
 rag_chain = (
     {
         "context": retriever_chain,
