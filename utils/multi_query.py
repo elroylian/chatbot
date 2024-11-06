@@ -2,7 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_chroma import Chroma
 import os
 import streamlit as st
-from custom_embeddings import MyEmbeddings
+from utils.custom_embeddings import MyEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain_ollama import OllamaLLM
 

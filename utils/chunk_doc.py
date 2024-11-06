@@ -107,7 +107,7 @@ def get_sentence_chunks(text, tokenizer, min_chunk_size=150, max_chunk_size=250,
 ###
 
 from pathlib import Path
-from custom_embeddings import MyEmbeddings
+from utils.custom_embeddings import MyEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter as Rec
 import streamlit as st
 from langchain_chroma import Chroma
