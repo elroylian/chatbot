@@ -2,6 +2,8 @@
 
 A Retrieval-Augmented Generation (RAG) chatbot specialized in Data Structures and Algorithms, powered by LangChain, AstraDB, and Streamlit.
 
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+
 ## Features
 
 - Interactive chat interface built with Streamlit
@@ -27,10 +29,7 @@ pip install -r requirements.txt
 ```
 4. Set up your environment variables:
 Edit the `.env` file with your API keys and configurations.
-4. Run the app:
-```bash
 
-```
 
 ## Usage
 1. Start the Streamlit application:
