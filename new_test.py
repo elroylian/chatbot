@@ -14,7 +14,7 @@ import re
 ####       ####
 #### TO DO ####
 ####       ####
-# Add prompt chain to ensure LLM explain based on User's competency level
+# Refine prompt chain to ensure LLM explain based on User's competency level
 # Restrict User from entering prompt when LLM is processing
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
@@ -45,7 +45,8 @@ if "messages" not in st.session_state:
 
 # Initialize user level
 if "user_level" not in st.session_state:
-    st.session_state["user_level"] = None
+    st.session_state["user_level"] = ""
+user_level = st.session_state["user_level"]
 
 retriever = get_retriever()
 
@@ -56,6 +57,7 @@ qa_prompt = get_qa_prompt()
 rag_chain = (
     {
         "context": retriever_chain,
+        "user_level": itemgetter("user_level"),
         "chat_history": itemgetter("chat_history"),
         "input": itemgetter("input"),
     }
@@ -100,7 +102,7 @@ for message in st.session_state.messages:
 #### For debugging  ####
 ####                ####
 def check_user_level():
-    if st.session_state["user_level"] is None:
+    if st.session_state["user_level"] == "":
        print("############### User level is None")
     else:
         print("############### User level is not None")
@@ -113,22 +115,30 @@ if prompt := st.chat_input("What is up?"):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-# Display assistant response in chat message container
+    # Check if history is empty
+    if not llm_chat_history:
+        response = initial_chain.invoke({
+                "input": prompt,
+                "chat_history": llm_chat_history
+            })
+    
+    # Display assistant response in chat message container
     with st.chat_message("assistant"):
+        
         # Initialize an empty list to hold the streamed chunks
         stream = []
 
-        if st.session_state["user_level"] is None:
+        if st.session_state["user_level"] == "":
+            
             print("RAN INITIAL CHAIN")
+            
             response = initial_chain.invoke({
                 "input": prompt,
                 "chat_history": llm_chat_history
             })
-            #   stream.append(chunk)
-            # Join the list of chunks to form the complete response
-            # response = st.write_stream(stream)
-            # st.session_state["user_level"] = user_level_response["data"]["user_level"]
+            
             print("this is the response:\n",response)
+            
             if "{" in response and "}" in response:
                 try:
                     json_str = response[response.index("{"):response.rindex("}") + 1]
@@ -162,7 +172,6 @@ if prompt := st.chat_input("What is up?"):
                     print("Oops! I broke. Sorry about that!")
             else:
                 print("Oops! I broke. Sorry about that! JSON FAILED")
-                # st.write("Oops! I broke. Sorry about that!")
                 st.write(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 llm_chat_history.extend(
@@ -175,7 +184,8 @@ if prompt := st.chat_input("What is up?"):
           # Stream the response from the RAG chain for a specific input
             for chunk in rag_chain.stream({
               "input": prompt,
-              "chat_history": llm_chat_history
+              "chat_history": llm_chat_history,
+                "user_level": user_level
               }):
               # if answer_chunk := chunk.get("answer"):
               #     # Append the answer chunk to the stream list
