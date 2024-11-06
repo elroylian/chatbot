@@ -28,7 +28,6 @@ def get_cst_token_chunks(text, tokenizer, chunk_size=250, chunk_overlap=50):
 
 import os
 import nltk
-from transformers import AutoTokenizer
 
 def ensure_nltk_data(package_name, nltk_data_path):
     if package_name == "punkt" or package_name == "punkt_tab":
@@ -107,37 +106,35 @@ def get_sentence_chunks(text, tokenizer, min_chunk_size=150, max_chunk_size=250,
 ### Append chunks to the vector store
 ###
 
-import chromadb
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
+from custom_embeddings import MyEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter as Rec
-from langchain.embeddings.base import Embeddings
-from typing import List
+import streamlit as st
+from langchain_chroma import Chroma
+from langchain_astradb import AstraDBVectorStore
+from langchain_core.documents import Document
 
-class MyEmbeddings(Embeddings):
-        def __init__(self):
-            self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    
-        def embed_documents(self, texts: List[str]) -> List[List[float]]:
-            return [self.model.encode(t).tolist() for t in texts]
-        
-        def embed_query(self, query: str) -> List[float]:
-            return self.model.encode(query).tolist()
-
+# Initialize Embedding Model
 embedding_func = MyEmbeddings()
 
 
-from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
-from langchain_core.documents import Document
+
 
 # Initialize ChromaDB client
-vector_store = Chroma(
-    # client = client,
-    collection_name="markdown_chunks_collection",
-    embedding_function=embedding_func,
-    persist_directory = "db/pdfs",
-    # other params...
+# vector_store = Chroma(
+#     # client = client,
+#     collection_name="markdown_chunks_collection",
+#     embedding_function=embedding_func,
+#     persist_directory = "db/pdfs",
+#     # other params...
+# )
+
+vector_store = AstraDBVectorStore(
+    collection_name="astra_vector_langchain",
+    embedding=embedding_func,
+    api_endpoint=st.secrets["ASTRA_DB_API_ENDPOINT"],
+    token=st.secrets["ASTRA_DB_APPLICATION_TOKEN"],
+    namespace=st.secrets["ASTRA_DB_NAMESPACE"],
 )
  
 def split_chunks():

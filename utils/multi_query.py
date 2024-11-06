@@ -1,22 +1,12 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_chroma import Chroma
-from langchain.embeddings.base import Embeddings
-from typing import List
 import os
 import streamlit as st
+from custom_embeddings import MyEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain_ollama import OllamaLLM
-from sentence_transformers import SentenceTransformer
 
-class MyEmbeddings(Embeddings):
-        def __init__(self):
-            self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    
-        def embed_documents(self, texts: List[str]) -> List[List[float]]:
-            return [self.model.encode(t).tolist() for t in texts]
-        
-        def embed_query(self, query: str) -> List[float]:
-            return self.model.encode(query).tolist()
+
 
 embedding_func = MyEmbeddings()
 
@@ -38,7 +28,6 @@ gpt4 = ChatOpenAI(
     temperature=0
 )
 
-# llm = OllamaLLM(model="gemma2:2b", base_url="http://localhost:11434")
 # llm = OllamaLLM(model="gemma2:2b", base_url="http://localhost:11434")
 
 generate_queries = (

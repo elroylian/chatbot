@@ -1,34 +1,43 @@
-# RAG Chatbot for DSA
+# DSA RAG Chatbot
 
-## Overview
+A Retrieval-Augmented Generation (RAG) chatbot specialized in Data Structures and Algorithms, powered by LangChain, AstraDB, and Streamlit.
 
-A simple chatbot using Retrieval-Augmented Generation (RAG) to help students with Data Structures and Algorithms (DSA). It provides explanations and guides users through DSA topics step-by-step.
+## Features
 
-## Setup
+- Interactive chat interface built with Streamlit
+- RAG implementation for DSA concepts and explanations
+- Support for multiple LLM providers (OpenAI, Ollama)
+- Context-aware responses with relevant DSA examples
+
+## Installation
 
 1. Clone the repository:
-   ```bash
-   git clone https://github.com/elroylian/chatbot.git
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Split Documents into Chunks and store in DB
-   - Ensure you have the necessary data in the path "data/books/"
-   - Run the cell in initial.ipynb to split the documents into chunks and store it in local DB
+```bash
+git clone https://github.com/elroylian/chatbot.git
+cd chatbot
+```
+2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+3. Install the required packages:
+```bash
+pip install -r requirements.txt
+```
+4. Set up your environment variables:
+Edit the `.env` file with your API keys and configurations.
 4. Run the app:
-   ```bash
-   streamlit run app.py
-   ```
+```bash
+
+```
 
 ## Usage
+1. Start the Streamlit application:
+```bash
+streamlit run app.py
+```
+2. Open your web browser and navigate to `http://localhost:8501`
 
-- Ask DSA-related questions to get explanations and guidance.
-- The chatbot will prompt for clarifications if needed.
+3. Start chatting with the bot about DSA concepts!
 
-## Technologies
-
-- **Python**
-- **Streamlit**
-- **RAG (Retrieval-Augmented Generation)**
