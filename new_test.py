@@ -22,6 +22,9 @@ os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
 os.environ['LANGCHAIN_API_KEY']= st.secrets["New_Langsmith_key"]
 os.environ['LANGCHAIN_PROJECT']="default"
 
+# Define chatbot version for easier tracking
+chatbot_version = "1.0.0"
+
 # Initialize the LLM
 llm = ChatOpenAI(
     model="gpt-4o-mini",
@@ -72,6 +75,7 @@ st.title("DSA Chatbot")
 
 # Add sidebar options
 st.sidebar.title("Options")
+st.sidebar.write("Version:", chatbot_version)
 if st.sidebar.button("Clear Chat History"):
     st.session_state["llm_chat_history"] = []
     st.session_state.messages = []
