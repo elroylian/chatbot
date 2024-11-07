@@ -1,3 +1,6 @@
+# This is a test file for DSA Chatbot before adding the code to the app.py file
+
+
 import streamlit as st
 from langchain_core.output_parsers import StrOutputParser
 import os
@@ -112,7 +115,7 @@ def check_user_level():
         print("############### User level is not None")
 
 # Accept user input
-if prompt := st.chat_input("What is up?"):
+if prompt := st.chat_input("What is an Array?"):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
