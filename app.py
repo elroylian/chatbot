@@ -22,6 +22,7 @@ chatbot_version = "1.0.0"
 # Initialize the LLM
 llm = ChatOpenAI(
     model="gpt-4o-mini",
+    temperature=0,
     # api_key=os.environ.get("OPENAI_API_KEY"),
     api_key=st.secrets["OpenAI_key"]
 )
