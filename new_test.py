@@ -13,6 +13,52 @@ from prompt_templates.intial_template import get_initial_chain
 from operator import itemgetter
 import json
 import re
+import sqlite3
+
+# Set up the SQLite database connection
+conn = sqlite3.connect("chat_history.db")
+c = conn.cursor()
+
+# Initialize user session with user ID and chat ID
+if "user_id" not in st.session_state:
+    st.session_state["user_id"] = "2200499"  # Replace with real user ID as needed
+if "chat_id" not in st.session_state:
+    st.session_state["chat_id"] = "1"  # Unique identifier for each chat session
+    
+user_id = st.session_state["user_id"]
+chat_id = st.session_state["chat_id"]
+
+# Create chat history table if it doesn't exist
+c.execute('''
+CREATE TABLE IF NOT EXISTS chat_history (
+    user_id TEXT,
+    chat_id TEXT,
+    role TEXT,
+    content TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+''')
+conn.commit()
+
+# Function to save message to database
+def save_message(user_id, chat_id, role, content):
+    c.execute(
+        "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (?, ?, ?, ?)",
+        (user_id, chat_id, role, content),
+    )
+    conn.commit()
+
+# Function to load chat history
+def load_chat_history(user_id, chat_id):
+    c.execute(
+        "SELECT role, content, timestamp FROM chat_history WHERE user_id = ? AND chat_id = ? ORDER BY timestamp",
+        (user_id, chat_id),
+    )
+    raw_history = c.fetchall()
+    
+    # Convert tuples to expected format for chat history
+    formatted_history = [{"role": role, "content": content,"timestamp": timestamp} for role, content, timestamp in raw_history]
+    return formatted_history
 
 ####       ####
 #### TO DO ####
@@ -26,18 +72,20 @@ os.environ['LANGCHAIN_API_KEY']= st.secrets["New_Langsmith_key"]
 os.environ['LANGCHAIN_PROJECT']="default"
 
 # Define chatbot version for easier tracking
-chatbot_version = "1.0.0"
+chatbot_version = "1.0.2"
 
 # Initialize the LLM
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     # api_key=os.environ.get("OPENAI_API_KEY"),
-    api_key=st.secrets["OpenAI_key"]
+    api_key=st.secrets["OpenAI_key"],
+    temperature=0
 )
 
 # Initialize LLM chat history (for context handling)
 if "llm_chat_history" not in st.session_state:
     st.session_state["llm_chat_history"] = []
+    # st.session_state["llm_chat_history"] = load_chat_history(user_id, chat_id)
 
 llm_chat_history = st.session_state["llm_chat_history"]
 
@@ -74,7 +122,7 @@ rag_chain = (
 
 initial_chain = get_initial_chain(llm)
 
-st.title("DSA Chatbot")
+st.title("DSA Chatbot (Test)")
 
 # Add sidebar options
 st.sidebar.title("Options")
@@ -82,6 +130,8 @@ st.sidebar.write("Version:", chatbot_version)
 if st.sidebar.button("Clear Chat History"):
     st.session_state["llm_chat_history"] = []
     st.session_state.messages = []
+    c.execute("DELETE FROM chat_history WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
+    conn.commit()
 
 # Add file uploader to sidebar
 uploaded_file = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx"])
@@ -101,9 +151,15 @@ if uploaded_file is not None:
     # Processing for other file types below
 
 # Display chat messages from history on app rerun
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+# for message in st.session_state.messages:
+#     with st.chat_message(message["role"]):
+#         st.markdown(message["content"])
+
+# Display previous chat messages from history on app rerun
+# for role, content, timestamp in st.session_state["llm_chat_history"]:
+#     with st.chat_message(role):
+#         st.markdown(f"{content}")
+#         print(f"{content}")
 
 ####                ####
 #### For debugging  ####
@@ -118,16 +174,16 @@ def check_user_level():
 if prompt := st.chat_input("What is an Array?"):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
+    save_message(user_id, chat_id, "user", prompt)
+    
+    print("###############\n")
+    print(st.session_state.messages)
+    print("###############\n")
+    print(load_chat_history(user_id, chat_id))
+    
     # Display user message in chat message container
     with st.chat_message("user"):
         st.markdown(prompt)
-
-    # Check if history is empty
-    if not llm_chat_history:
-        response = initial_chain.invoke({
-                "input": prompt,
-                "chat_history": llm_chat_history
-            })
     
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
@@ -156,13 +212,16 @@ if prompt := st.chat_input("What is an Array?"):
 
                     # Extract message from LLM
                     message = data.get("message")
+                    
+                    # Append and save assistant's message
+                    save_message(user_id, chat_id, "assistant", message)
+                    
                     llm_chat_history.extend(
                         [
                             HumanMessage(content=prompt),
                             AIMessage(content=message),
                         ]
                     )
-                    print("This is the msg: ",message)
                     stream_message = re.findall(r'\S+|\s+', message)
                     full_response = st.write_stream(stream_message)
                     
@@ -181,6 +240,8 @@ if prompt := st.chat_input("What is an Array?"):
                 print("Oops! I broke. Sorry about that! JSON FAILED")
                 st.write(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
+                # Append and save assistant's message
+                save_message(user_id, chat_id, "assistant", response)
                 llm_chat_history.extend(
                     [
                         HumanMessage(content="Remember, you MUST generate a syntactically correct JSON object."),
@@ -201,6 +262,7 @@ if prompt := st.chat_input("What is an Array?"):
 
             # Join the list of chunks to form the complete response
             full_response = st.write_stream(stream)
+            save_message(user_id, chat_id, "assistant", full_response)
 
             # Append the full response to the chat history
             llm_chat_history.extend(

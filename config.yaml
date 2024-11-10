@@ -1,0 +1,15 @@
+cookie:
+  expiry_days: 30
+  key: some_signature_key
+  name: some_cookie_name
+credentials:
+  usernames:
+    bobtest:
+      email: bobtest@gmail.com
+      failed_login_attempts: 0
+      first_name: Bob
+      last_name: Test
+      logged_in: false
+      password: $2b$12$fixxrP.WSwjizoeUIoVeneS/HK9KU8M1QpwIDTMh6qP4sc83aJAY2
+      roles:
+      - viewer
