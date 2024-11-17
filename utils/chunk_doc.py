@@ -53,8 +53,8 @@ def ensure_nltk_data(package_name, nltk_data_path):
 nltk_data_path = nltk.data.path[0]
 
 # Ensure the NLTK data is downloaded
-ensure_nltk_data("punkt", nltk_data_path)
-ensure_nltk_data("punkt_tab", nltk_data_path)
+# ensure_nltk_data("punkt", nltk_data_path)
+# ensure_nltk_data("punkt_tab", nltk_data_path)
 
 def get_sentence_chunks(text, tokenizer, min_chunk_size=150, max_chunk_size=250, overlap_size=50):
     try:
@@ -129,7 +129,7 @@ embedding_func = MyEmbeddings()
 # )
 
 vector_store = AstraDBVectorStore(
-    collection_name="astra_vector_langchain",
+    collection_name="chatbot_collection",
     embedding=embedding_func,
     api_endpoint=st.secrets["ASTRA_DB_API_ENDPOINT"],
     token=st.secrets["ASTRA_DB_APPLICATION_TOKEN"],
