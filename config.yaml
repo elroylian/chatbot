@@ -4,12 +4,11 @@ cookie:
   name: some_cookie_name
 credentials:
   usernames:
-    bobtest:
-      email: bobtest@gmail.com
-      failed_login_attempts: 0
-      first_name: Bob
-      last_name: Test
+    roylwz:
+      email: elroy7602@gmail.com
+      first_name: Elroy
+      last_name: Lian
       logged_in: false
-      password: $2b$12$fixxrP.WSwjizoeUIoVeneS/HK9KU8M1QpwIDTMh6qP4sc83aJAY2
-      roles:
-      - viewer
+      password: $2b$12$dknIOTMKMeYsGWzvZu5fkObNdmaoxR6dvIEuYDPn7dEW8AlA4hu7K
+      password_hint: abcde123!
+      roles: null
