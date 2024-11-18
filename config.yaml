@@ -12,3 +12,12 @@ credentials:
       password: $2b$12$dknIOTMKMeYsGWzvZu5fkObNdmaoxR6dvIEuYDPn7dEW8AlA4hu7K
       password_hint: abcde123!
       roles: null
+    testuser:
+      email: testuser@gmail.com
+      first_name: Test
+      last_name: User
+      logged_in: false
+      password: $2b$12$dI17BU1VBL.i6Hu9mMQSnux9ShVnXoTF/u3KH4OjgsPK3gc59FBRy
+      password_hint: Abcde123!
+      roles:
+        - tester

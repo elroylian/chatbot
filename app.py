@@ -22,10 +22,10 @@ from streamlit_authenticator.utilities import (CredentialsError,
                                                UpdateError)
 from db.db_connection import ChatDatabase
 
-os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
-os.environ['LANGCHAIN_API_KEY']= st.secrets["New_Langsmith_key"]
-os.environ['LANGCHAIN_PROJECT']="default"
+# os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+# os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
+# os.environ['LANGCHAIN_API_KEY']= st.secrets["New_Langsmith_key"]
+# os.environ['LANGCHAIN_PROJECT']="default"
 
 # Loading config file
 with open('config.yaml', 'r', encoding='utf-8') as file:
@@ -42,30 +42,26 @@ authenticator = stauth.Authenticate(
 # Initialize the database manager
 @st.cache_resource
 def get_database():
-    return ChatDatabase('enhanced_chat.db')
+    return ChatDatabase('chat.db')
 
 db = get_database()
 
-def clear_session_messages():
+def clear_session():
     # Reset chat history when user logs out
+    print("Clearing session variables")
     if "messages" in st.session_state:
-        # st.session_state.messages = []
-        del st.session_state.messages
-        print("messages cleared")
+        del st.session_state["messages"]
+        # print("messages cleared")
     if "llm_chat_history" in st.session_state:
         del st.session_state["llm_chat_history"]
-        print("llm_chat_history cleared")
+        # print("llm_chat_history cleared")
     if "user_level" in st.session_state:
         del st.session_state["user_level"]
-        print("user_level cleared")
+        # print("user_level cleared")
 
 if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
     
-    # Clear session state
-    # for key in list(st.session_state.keys()):
-    #     if key != "authentication_status":
-    #         del st.session_state[key]              
-    clear_session_messages()
+    # clear_session_messages()
     
     st.title('Chatbot Main Page')
     
@@ -108,8 +104,6 @@ if st.session_state["authentication_status"] is None or st.session_state["authen
             st.error(e)
 else:
     if st.session_state["authentication_status"]:
-            
-        authenticator.logout('Logout','sidebar')
         
         # Define chatbot version for easier tracking
         chatbot_version = "1.1.0"
@@ -130,40 +124,44 @@ else:
 
         st.sidebar.write("Welcome, ",st.session_state['name'])
         
-        # st.sidebar.write(db.get_user_by_email(st.session_state['email']))
+        if "tester" in st.session_state['roles']:
+            st.sidebar.title("User Information:")
+            st.sidebar.write(db.get_user_by_email(st.session_state['email']))
+            if st.sidebar.button("Reset User Level", type='primary'):
+                db.save_user_data(st.session_state['user_id'], "", st.session_state['email'])
+                st.session_state["user_level"] = ""
+                st.success("User level reset successfully.")
         
-        user_info = db.get_user_by_email(st.session_state['email'])
-        
-        # ChatID
-        chat_id = user_info['user_id']+"_1"
-        
-        # User Info
-        user_id = user_info['user_id']
-        user_email = user_info['email']
-        
-        # Load chat history upon successful login
-        user_info = db.get_user_by_email(st.session_state['email'])
-        chat_id = user_info['user_id'] + "_1"
-        chat_history = db.load_chat_history(user_info['user_id'], chat_id)
-        
-        # Initialize chat history
-        if "messages" not in st.session_state:
-            st.session_state.messages = chat_history
-        
-        # Initialize user level
-        if "user_level" not in st.session_state:
-            st.session_state["user_level"] = db.get_user_level(user_id)
-        user_level = st.session_state["user_level"]
-        
-        # if chat_history:
-        #     for message in chat_history:
-        #         st.session_state.messages.append(message)
-        #         if message["role"] == "user":
-        #             st.session_state["llm_chat_history"].append(HumanMessage(content=message["content"]))
-        #         else:
-        #             st.session_state["llm_chat_history"].append(AIMessage(content=message["content"]))
-        
-        # print("HI!!!\n",chat_history)
+        if user_info := db.get_user_by_email(st.session_state['email']):
+
+            # ChatID
+            chat_id = user_info['user_id']+"_1"
+            
+            # User Info
+            user_id = user_info['user_id']
+            user_email = user_info['email']
+            
+            # Load chat history upon successful login
+            user_info = db.get_user_by_email(st.session_state['email'])
+            chat_id = user_info['user_id'] + "_1"
+            chat_history = db.load_chat_history(user_info['user_id'], chat_id)
+            
+            # Initialize chat history
+            if "messages" not in st.session_state:
+                st.session_state.messages = chat_history
+            
+            # Initialize user level
+            if "user_level" not in st.session_state:
+                st.session_state["user_level"] = db.get_user_level(user_id)
+            user_level = st.session_state["user_level"]
+            
+            if chat_history:
+                for message in chat_history:
+
+                    if message["role"] == "user":
+                        st.session_state["llm_chat_history"].append(HumanMessage(content=message["content"]))
+                    else:
+                        st.session_state["llm_chat_history"].append(AIMessage(content=message["content"]))
 
         retriever = get_retriever()
 
@@ -189,6 +187,7 @@ else:
 
         # Add sidebar options
         st.sidebar.title("Options")
+        authenticator.logout('Logout','sidebar',callback=clear_session())
         st.sidebar.write("Version:", chatbot_version)
         if st.sidebar.button("Clear Chat History"):
             st.session_state["llm_chat_history"] = []
@@ -213,15 +212,10 @@ else:
             # Processing for other file types below
 
         # Display chat messages from history on app rerun
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        ####                ####
-        #### For debugging  ####
-        ####                ####
-        def check_user_level():
-            print("UL>> ",st.session_state["user_level"])
+        if "messages" in st.session_state:
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
 
         # Accept user input
         if prompt := st.chat_input("What is an Array?"):
@@ -238,15 +232,15 @@ else:
                 
                 # Initialize an empty list to hold the streamed chunks
                 stream = []
-                check_user_level()
+
                 if st.session_state["user_level"] in ["","null",None]:
                     
                     print("RAN INITIAL CHAIN\n")
-                    
-                    response = initial_chain.invoke({
-                        "input": prompt,
-                        "chat_history": llm_chat_history
-                    })
+                    with st.spinner("Analyzing your experience level..."):
+                        response = initial_chain.invoke({
+                            "input": prompt,
+                            "chat_history": llm_chat_history
+                        })
                     
                     print("this is the response:\n",response)
                     
@@ -299,6 +293,7 @@ else:
                         )
                 else:
                   # Stream the response from the RAG chain for a specific input
+                  with st.spinner("Thinking..."):
                     for chunk in rag_chain.stream({
                       "input": prompt,
                       "chat_history": llm_chat_history,
