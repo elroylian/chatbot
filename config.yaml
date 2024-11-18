@@ -13,6 +13,7 @@ credentials:
       password_hint: abcde123!
       roles:
       - user
+      - tester
     testuser:
       email: testuser@gmail.com
       first_name: Test
