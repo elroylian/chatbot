@@ -27,8 +27,72 @@ llm = ChatOpenAI(
 from langchain_ollama import OllamaLLM
 gemmallm = OllamaLLM(model="gemma2:2b", base_url="http://localhost:11434")
 
-
 retriever = get_retriever()
+
+# Initial prompt to gauge user competency in DSA
+initial_prompt = """
+You are a DSA (Data Structures and Algorithms) assistant. Start by asking the user a few questions to gauge their familiarity and comfort level with DSA. Based on their responses, determine their competency level as 'beginner', 'intermediate', or 'advanced'.
+
+Ask about:
+- Familiarity with basic data structures (arrays, linked lists, stacks, queues)
+- Understanding of sorting algorithms (e.g., insertion sort, merge sort)
+- Experience with advanced topics (e.g., trees, graphs, dynamic programming)
+
+Respond with a sentence indicating their level of competency. For example: "Based on your responses, I would classify your DSA competency level as 'beginner'."
+"""
+# Initial Chain to gauge competency
+initial_chain = (
+    {
+        "input": itemgetter("input")
+    }
+    | ChatPromptTemplate.from_messages(
+        [
+            ("system", initial_prompt),
+            ("human", "{input}"),
+        ]
+    )
+    | llm
+    | StrOutputParser()
+)
+
+# Function to determine user's level and store it in session state
+def determine_user_level():
+    if "user_level" not in st.session_state:
+        user_level_response = initial_chain.invoke({"input": "Can you tell me about your experience with DSA?"})
+        # st.session_state["user_level"] = user_level_response["message"]
+        print(user_level_response)
+
+# Contextual prompt that adapts explanations based on user level
+def get_system_prompt():
+    user_level = st.session_state.get("user_level", "beginner")  # Default to beginner if level is not set
+    return f"""
+    You are an assistant specializing in Data Structures and Algorithms (DSA) with an adaptive explanation style.
+    The user's DSA competency level is {user_level}. Tailor your explanations to match this level.
+    
+    Only answer questions directly related to DSA topics or coding implementations.
+    If the question is not specifically about DSA, politely redirect to discuss DSA topics.
+    """
+
+# Create the final QA chain using RAG (retrieval augmented generation) adapted to user level
+competency_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", get_system_prompt()),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ]
+)
+
+competency_chain = (
+    {
+        "context": competency_prompt,
+        "chat_history": itemgetter("chat_history"),
+        "input": itemgetter("input"),
+    }
+    | competency_prompt
+    | llm
+    | StrOutputParser()
+)
+
 ### Contextualize question ###
 contextualize_q_system_prompt = (
     "Given a chat history and the latest user question "
@@ -90,14 +154,9 @@ retriever_chain = generate_queries | retriever.map() | get_unique_union
 ### Answer question
 system_prompt = (
     "You are an assistant specializing in Data Structures and Algorithms (DSA) and code implementations. Only answer questions that are directly related to DSA topics or involve code implementations. "
-    "If the question is not specifically about DSA or programming code, do not answer, even if relevant context is available. "
-    "For unrelated questions, redirect to talk more about DSA topics. "
+    "If the question is not specifically about DSA or programming code, redirect to talk more about DSA topics, even if relevant context is available. "
+    "If the answer is not in the context, redirect to talk more about the topic. "
     "\n\n{context}"
-    # "You are an assistant specializing in Data Structures and Algorithms (DSA), but you can also answer general questions. "
-    # "If the question is about DSA, use the provided context to answer. If the answer is not in the context, "
-    # "say you don’t know. For general questions outside of DSA, provide the best answer you can, or politely redirect if necessary."
-    # "\n\n"
-    # "{context}"
 )
 
 qa_prompt = ChatPromptTemplate.from_messages(
@@ -147,6 +206,7 @@ if uploaded_file is not None:
 # Initialize LLM chat history (for context handling)
 if "llm_chat_history" not in st.session_state:
     st.session_state["llm_chat_history"] = []
+    determine_user_level()  # Run only once to get competency level
     
 llm_chat_history = st.session_state["llm_chat_history"]
 
@@ -176,8 +236,14 @@ if prompt := st.chat_input("What is up?"):
         # Initialize an empty list to hold the streamed chunks
         stream = []
         
+        # if not llm_chat_history:
+        #     for chunk in initial_chain.stream({"input": prompt}):
+        #         stream.append(chunk)
+        #     # Join the list of chunks to form the complete response
+        #     full_response = st.write_stream(stream)
+        # else:
         # Stream the response from the RAG chain for a specific input
-        for chunk in rag_chain.stream({
+        for chunk in initial_chain.stream({
             "input": prompt, 
             "chat_history": llm_chat_history
             }):

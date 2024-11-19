@@ -11,7 +11,7 @@ from prompt_templates.intial_template import get_initial_chain
 from operator import itemgetter
 import json
 import re
-import os
+from utils.image_processing import process_image
 import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import (CredentialsError,
                                                ForgotError,
@@ -107,7 +107,7 @@ else:
     if st.session_state["authentication_status"]:
         
         # Define chatbot version for easier tracking
-        chatbot_version = "1.1.0"
+        chatbot_version = "1.2.0"
 
         # Initialize the LLM
         llm = ChatOpenAI(
@@ -127,7 +127,7 @@ else:
         st.sidebar.write("Welcome, ",st.session_state['name'])
         
         if "tester" in st.session_state['roles']:
-            st.sidebar.title("User Information:")
+            st.sidebar.title("Extra Options:")
             st.sidebar.write(db.get_user_by_email(st.session_state['email']))
             if st.sidebar.button("Reset User Level", type='primary'):
                 db.save_user_data(st.session_state['user_id'], "", st.session_state['email'])
@@ -146,7 +146,7 @@ else:
             
             # Load chat history upon successful login
             user_info = db.get_user_by_email(st.session_state['email'])
-            chat_id = user_info['user_id'] + "_1"
+            chat_id = f"{user_info['user_id']}_1"
             chat_history = db.load_chat_history(user_info['user_id'], chat_id)
             
             # If chat history exists, load it into the messages list
@@ -204,7 +204,7 @@ else:
             db.clear_chat_history(user_id, chat_id)
 
         # Add file uploader to sidebar
-        uploaded_file = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx"])
+        uploaded_file = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx", "png", "jpg", "jpeg"])
 
         # Process the uploaded file if available
         if uploaded_file is not None:
@@ -214,11 +214,32 @@ else:
                 "filesize": uploaded_file.size
             }
             st.sidebar.write("File Details:", file_details)
-            # Process file content if needed; for example, reading and displaying content:
-            if uploaded_file.type == "text/plain":
+            
+            # Handle different file types
+            if uploaded_file.type.startswith('image'):
+                try:
+                    base64_image, processed_image = process_image(uploaded_file)
+                    st.sidebar.image(processed_image, caption="Processed Image")
+                    # st.sidebar.write("Extracted Text:", extracted_text)
+                    try:
+                        message = HumanMessage(
+                            content=[
+                                {"type": "text", "text": "Describe the image below in detail as possible:"},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                                },
+                        ]
+                    )
+                        ai_msg = llm.invoke([message])
+                        print("IMG processing by LLM:\n",ai_msg.content)
+                    except Exception as e:
+                        raise Exception(f"OpenAI image processing failed: {str(e)}")
+                except Exception as e:
+                    st.sidebar.error(f"Error processing image: {str(e)}")
+            elif uploaded_file.type == "text/plain":
                 file_content = uploaded_file.read().decode("utf-8")
                 st.sidebar.write("File Content:", file_content)
-            # Processing for other file types below
 
         # Display chat messages from history on app rerun
         if "messages" in st.session_state:
