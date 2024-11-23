@@ -8,6 +8,7 @@ from utils.chunk_doc import get_retriever
 from prompt_templates.contextual_query import get_context_query_chain
 from prompt_templates.qa_template import get_qa_prompt
 from prompt_templates.intial_template import get_initial_chain
+from utils.image_processing import process_image
 from operator import itemgetter
 import json
 import re
@@ -63,7 +64,7 @@ if st.session_state["authentication_status"] is None or st.session_state["authen
     
     clear_session()
     
-    st.title('Chatbot Main Page')
+    st.title('DSA Chatbot')
     
     # Create tabs for login and registration
     tab1, tab2 = st.tabs(["Login", "Register"])
@@ -112,7 +113,6 @@ else:
         # Initialize the LLM
         llm = ChatOpenAI(
             model="gpt-4o-mini",
-            # api_key=os.environ.get("OPENAI_API_KEY"),
             api_key=st.secrets["OpenAI_key"],
             temperature=0
         )
@@ -126,23 +126,26 @@ else:
 
         st.sidebar.write("Welcome, ",st.session_state['name'])
         
-        if "tester" in st.session_state['roles']:
-            st.sidebar.title("Extra Options:")
-            st.sidebar.write(db.get_user_by_email(st.session_state['email']))
-            if st.sidebar.button("Reset User Level", type='primary'):
-                db.save_user_data(st.session_state['user_id'], "", st.session_state['email'])
-                st.session_state["user_level"] = ""
-                st.success("User level reset successfully.")
-        
         if user_info := db.get_user_by_email(st.session_state['email']):
             
-            print("Retrieved user info: ", user_info)
             # ChatID
             chat_id = user_info['user_id']+"_1"
             
             # User Info
             user_id = user_info['user_id']
             user_email = user_info['email']
+            
+            def tester_function():
+                if "tester" in st.session_state['roles']:
+                    st.title("Extra Options:")
+                    st.write(db.get_user_by_email(st.session_state['email']))
+                    if st.button("Reset User Level", type='primary'):
+                        db.save_user_data(user_info["user_id"], "", st.session_state['email'])
+                        st.session_state["user_level"] = ""
+                        st.success("User level reset successfully.")
+            
+            with st.sidebar:
+                tester_function()
             
             # Load chat history upon successful login
             user_info = db.get_user_by_email(st.session_state['email'])
@@ -166,6 +169,26 @@ else:
             # Initialize user level
             st.session_state["user_level"] = db.get_user_level(user_id)
             user_level = st.session_state["user_level"]
+            
+            levels = ("Beginner", "Intermediate", "Advanced")
+            
+            # if(user_level != ""):
+            #     level_index = levels.index(user_level.capitalize())
+            
+            # if user_level not in ["","null",None]:
+            #     option = st.sidebar.selectbox(
+            #         "Choose your competency?",
+            #         ("Beginner", "Intermediate", "Advanced"),
+            #         index=level_index,
+            #         placeholder="Select level...",
+            #     )
+                
+            # if option != user_level:
+            # db.save_user_data(user_id, option.lower(), user_email)
+            # st.session_state["user_level"] = option.lower()
+            # user_level = option.lower()
+            
+            
         
         else:
             st.error("User not found in the database.")
@@ -204,7 +227,7 @@ else:
             db.clear_chat_history(user_id, chat_id)
 
         # Add file uploader to sidebar
-        uploaded_file = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx"])
+        uploaded_file = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx", "png", "jpg", "jpeg"])
 
         # Process the uploaded file if available
         if uploaded_file is not None:
@@ -214,11 +237,32 @@ else:
                 "filesize": uploaded_file.size
             }
             st.sidebar.write("File Details:", file_details)
-            # Process file content if needed; for example, reading and displaying content:
-            if uploaded_file.type == "text/plain":
+            
+            # Handle different file types
+            if uploaded_file.type.startswith('image'):
+                try:
+                    base64_image, processed_image = process_image(uploaded_file)
+                    st.sidebar.image(processed_image, caption="Processed Image")
+                    # st.sidebar.write("Extracted Text:", extracted_text)
+                    try:
+                        message = HumanMessage(
+                            content=[
+                                {"type": "text", "text": "Describe the image below in detail as possible:"},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                                },
+                        ]
+                    )
+                        ai_msg = llm.invoke([message])
+                        print("IMG processing by LLM:\n",ai_msg.content)
+                    except Exception as e:
+                        raise Exception(f"OpenAI image processing failed: {str(e)}")
+                except Exception as e:
+                    st.sidebar.error(f"Error processing image: {str(e)}")
+            elif uploaded_file.type == "text/plain":
                 file_content = uploaded_file.read().decode("utf-8")
                 st.sidebar.write("File Content:", file_content)
-            # Processing for other file types below
 
         # Display chat messages from history on app rerun
         if "messages" in st.session_state:
