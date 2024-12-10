@@ -6,8 +6,10 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage
 from utils.chunk_doc import get_retriever
 from prompt_templates.contextual_query import get_context_query_chain
-from prompt_templates.qa_template import get_qa_prompt
+from prompt_templates.qa_template import get_qa_chain
 from prompt_templates.intial_template import get_initial_chain
+from prompt_templates.retrieval_check import get_rc_chain
+from prompt_templates.image_template import get_image_chain
 from utils.image_processing import process_image
 from operator import itemgetter
 import json
@@ -23,10 +25,10 @@ from streamlit_authenticator.utilities import (CredentialsError,
                                                UpdateError)
 from db.db_connection import ChatDatabase
 
-# os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-# os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
-# os.environ['LANGCHAIN_API_KEY']= st.secrets["New_Langsmith_key"]
-# os.environ['LANGCHAIN_PROJECT']="default"
+os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
+os.environ['LANGCHAIN_API_KEY']= st.secrets["New_Langsmith_key"]
+os.environ['LANGCHAIN_PROJECT']="default"
 
 # Loading config file
 with open('config.yaml', 'r', encoding='utf-8') as file:
@@ -40,6 +42,8 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
     
+
+
 # Initialize the database manager
 @st.cache_resource
 def get_database():
@@ -59,6 +63,9 @@ def clear_session():
     if "user_level" in st.session_state:
         del st.session_state["user_level"]
         # print("user_level cleared")
+        
+def join_message_stream(stream):
+    pass
 
 if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
     
@@ -109,14 +116,13 @@ else:
         
         # Define chatbot version for easier tracking
         chatbot_version = "1.2.0"
-
+        
         # Initialize the LLM
         llm = ChatOpenAI(
             model="gpt-4o-mini",
             api_key=st.secrets["OpenAI_key"],
             temperature=0
         )
-        
         
         # Initialize LLM chat history (for context handling)
         if "llm_chat_history" not in st.session_state:
@@ -170,26 +176,7 @@ else:
             st.session_state["user_level"] = db.get_user_level(user_id)
             user_level = st.session_state["user_level"]
             
-            levels = ("Beginner", "Intermediate", "Advanced")
-            
-            # if(user_level != ""):
-            #     level_index = levels.index(user_level.capitalize())
-            
-            # if user_level not in ["","null",None]:
-            #     option = st.sidebar.selectbox(
-            #         "Choose your competency?",
-            #         ("Beginner", "Intermediate", "Advanced"),
-            #         index=level_index,
-            #         placeholder="Select level...",
-            #     )
-                
-            # if option != user_level:
-            # db.save_user_data(user_id, option.lower(), user_email)
-            # st.session_state["user_level"] = option.lower()
-            # user_level = option.lower()
-            
-            
-        
+   
         else:
             st.error("User not found in the database.")
             st.stop()
@@ -199,21 +186,23 @@ else:
 
         contextual_query_chain = get_context_query_chain(llm)
         retriever_chain = contextual_query_chain | retriever
-
-        qa_prompt = get_qa_prompt()
-        rag_chain = (
-            {
-                "context": retriever_chain,
-                "user_level": itemgetter("user_level"),
-                "chat_history": itemgetter("chat_history"),
-                "input": itemgetter("input"),
-            }
-            | qa_prompt
-            | llm
-            | StrOutputParser()
-        )
-
+        image_chain = get_image_chain(llm)
+        
+        # rag_chain = (
+        #     {
+        #         "context": retriever_chain,
+        #         "user_level": itemgetter("user_level"),
+        #         "chat_history": itemgetter("chat_history"),
+        #         "input": itemgetter("input"),
+        #     }
+        #     | qa_prompt
+        #     | llm
+        #     | StrOutputParser()
+        # )
+        
+        rag_chain = get_qa_chain(llm, contextual_query_chain, retriever)
         initial_chain = get_initial_chain(llm)
+        retrieval_check_chain = get_rc_chain(llm)
 
         st.title("DSA Chatbot")
 
@@ -226,43 +215,43 @@ else:
             st.session_state.messages = []
             db.clear_chat_history(user_id, chat_id)
 
-        # Add file uploader to sidebar
-        uploaded_file = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx", "png", "jpg", "jpeg"])
+        # Add file uploader to sidebar based on user assessment status
+        if st.session_state["user_level"] in ["", "null", None]:
+            st.sidebar.warning("Complete your initial assessment to unlock file uploads. Start by asking a question in the chat.")
+        else:
+            uploaded_files = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
-        # Process the uploaded file if available
-        if uploaded_file is not None:
-            file_details = {
-                "filename": uploaded_file.name,
-                "filetype": uploaded_file.type,
-                "filesize": uploaded_file.size
-            }
-            st.sidebar.write("File Details:", file_details)
+            # Process the uploaded file if available
+            # if uploaded_file is not None:
+            #     file_details = {
+            #         "filename": uploaded_file.name,
+            #         "filetype": uploaded_file.type,
+            #         "filesize": uploaded_file.size
+            #     }
+            #     st.sidebar.write("File Details:", file_details)
+            uploaded_images = []
             
-            # Handle different file types
-            if uploaded_file.type.startswith('image'):
-                try:
-                    base64_image, processed_image = process_image(uploaded_file)
-                    st.sidebar.image(processed_image, caption="Processed Image")
-                    # st.sidebar.write("Extracted Text:", extracted_text)
-                    try:
-                        message = HumanMessage(
-                            content=[
-                                {"type": "text", "text": "Describe the image below in detail as possible:"},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                                },
-                        ]
-                    )
-                        ai_msg = llm.invoke([message])
-                        print("IMG processing by LLM:\n",ai_msg.content)
-                    except Exception as e:
-                        raise Exception(f"OpenAI image processing failed: {str(e)}")
-                except Exception as e:
-                    st.sidebar.error(f"Error processing image: {str(e)}")
-            elif uploaded_file.type == "text/plain":
-                file_content = uploaded_file.read().decode("utf-8")
-                st.sidebar.write("File Content:", file_content)
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                # Handle different file types
+                    if uploaded_file.type.startswith('image'):
+                        try:
+                            base64_image, processed_image = process_image(uploaded_file)
+                            st.sidebar.image(processed_image, caption="Processed Image")
+                            uploaded_images.append(base64_image)
+                            
+                        except Exception as e:
+                            st.sidebar.error(f"Error processing image: {str(e)}")
+                            
+                    elif uploaded_file.type == "text/plain":
+                        file_content = uploaded_file.read().decode("utf-8")
+                        st.sidebar.write("File Content:", file_content)
+                        
+            if uploaded_images and st.sidebar.button("Clear Images"):
+                uploaded_images = []
+                st.sidebar.success("Images cleared")
+            
+            
 
         # Display chat messages from history on app rerun
         if "messages" in st.session_state:
@@ -272,6 +261,7 @@ else:
 
         # Accept user input
         if prompt := st.chat_input("What is an Array?"):
+            
             # Add user message to chat history
             st.session_state.messages.append({"role": "user", "content": prompt})
             db.save_message(user_id, chat_id, "user", prompt)
@@ -300,6 +290,7 @@ else:
                     if "{" in response and "}" in response:
                         try:
                             json_str = response[response.index("{"):response.rindex("}") + 1]
+                            
                             data = json.loads(json_str)
 
                             # Extract necessary fields
@@ -345,32 +336,101 @@ else:
                             ]
                         )
                 else:
-                # Stream the response from the RAG chain for a specific input
+                
                     with st.spinner("Thinking..."):
-                        for chunk in rag_chain.stream({
-                        "input": prompt,
-                        "chat_history": llm_chat_history,
-                            "user_level": user_level
-                        }):
-                        # if answer_chunk := chunk.get("answer"):
-                        #     # Append the answer chunk to the stream list
-                        #     stream.append(answer_chunk)
-                            stream.append(chunk)
+                        
+                        # Check if the user input contains an image
+                        if uploaded_images:
+                            print("RAN IMAGE CHAIN\n")
+                            messages_content  = [{"type": "text", "text": prompt}]
+                            for img in uploaded_images:
+                                messages_content .append({
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{img}"}
+                                })
+                        
+                            
+                            # Use image chain for image-based questions
+                            for chunk in image_chain.stream({
+                                "human_msg": messages_content ,
+                                "user_level": user_level,
+                                "chat_history": llm_chat_history 
+                            }):
+                                stream.append(chunk)
+                            
+                                
+                            # Join the list of chunks to form the complete response
+                            full_response = st.write_stream(stream)
+                            db.save_message(user_id, chat_id, "assistant", full_response)
 
-                        # Join the list of chunks to form the complete response
-                        full_response = st.write_stream(stream)
-                        db.save_message(user_id, chat_id, "assistant", full_response)
+                            # Append the full response to the chat history
+                            llm_chat_history.extend(
+                                [
+                                    HumanMessage(content=prompt),
+                                    AIMessage(content=full_response),
+                                ]
+                            )
 
-                        # Append the full response to the chat history
-                        llm_chat_history.extend(
-                            [
-                                HumanMessage(content=prompt),
-                                AIMessage(content=full_response),
-                            ]
-                        )
+                            # Display the full response in the chat message container
+                            st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        else:
+                            print("RAN no-IMAGE CHAIN\n")
+                            # Check if the user input requires a retrieval function
+                            response = retrieval_check_chain.invoke({
+                                "input": prompt
+                            })
+                            
+                            if response == "true":
+                                print("RAN TRUE CHAIN\n")
+                                # Stream the response from the RAG chain for a specific input
+                                for chunk in rag_chain.stream({
+                                "input": prompt,
+                                "chat_history": llm_chat_history,
+                                    "user_level": user_level
+                                }):
+                                # if answer_chunk := chunk.get("answer"):
+                                #     # Append the answer chunk to the stream list
+                                #     stream.append(answer_chunk)
+                                    stream.append(chunk)
 
-                        # Display the full response in the chat message container
-                        st.session_state.messages.append({"role": "assistant", "content": full_response})
+                                # Join the list of chunks to form the complete response
+                                full_response = st.write_stream(stream)
+                                db.save_message(user_id, chat_id, "assistant", full_response)
+
+                                # Append the full response to the chat history
+                                llm_chat_history.extend(
+                                    [
+                                        HumanMessage(content=prompt),
+                                        AIMessage(content=full_response),
+                                    ]
+                                )
+
+                                # Display the full response in the chat message container
+                                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                            
+                            else:
+                                print("RAN FALSE CHAIN\n")
+                            
+                                for chunk in contextual_query_chain.stream({
+                                    "input": prompt,
+                                    "chat_history": llm_chat_history
+                                }):
+                                    stream.append(chunk)
+                                    
+                                # Join the list of chunks to form the complete response
+                                full_response = st.write_stream(stream)
+                                db.save_message(user_id, chat_id, "assistant", full_response)
+                                
+                                # Append the full response to the chat history
+                                llm_chat_history.extend(
+                                    [
+                                        HumanMessage(content=prompt),
+                                        AIMessage(content=full_response),
+                                    ]
+                                )
+
+                                # Display the full response in the chat message container
+                                st.session_state.messages.append({"role": "assistant", "content": full_response})
     # except Exception as e:
     #     st.error(f"An error occurred: {e}")
     #     st.error("Please contact the administrator.")
