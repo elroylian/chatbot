@@ -1,34 +1,26 @@
-from langchain_core.prompts import ChatPromptTemplate, FewShotPromptTemplate, FewShotChatMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from operator import itemgetter
 from langchain_core.output_parsers import StrOutputParser
 
-# Define your examples
-examples = [
-    {"query": "What is an Array?", "response": "true"},
-    {"query": "What is Insertion Sort?", "response": "true"},
-    {"query": "Thank you!", "response": "false"},
-    {"query": "I am learning DSA.", "response": "false"}
-]
+system_message = """You are a query analyzer for a DSA (Data Structures and Algorithms) chatbot. Your role is to determine whether a user query requires retrieving information from the knowledge base.
 
-# Define how each example should be formatted
-example_prompt = ChatPromptTemplate.from_messages([
-    ("human", "query: {query}"),
-    ("assistant","{response}")
-])
+Return "true" if the query:
+- Asks about DSA concepts, definitions, or implementations
+- Requests technical details about algorithms or data structures
+- Seeks explanation of time/space complexity
+- Asks for code examples or implementation details
 
-# Create few-shot prompt
-few_shot_prompt = FewShotChatMessagePromptTemplate(
-    example_prompt=example_prompt,
-    examples=examples,
-)
+Return "false" if the query:
+- Is a follow-up question relying on chat history
+- Contains general acknowledgments or thanks
+- Asks for clarification of previous responses
+- Is a conversation flow message
 
-# Define your system message
-system_message = """Given a user query, determine whether it requires doing a retrieval function to respond to."""
+Return ONLY "true" or "false" without any explanation."""
 
 def get_rc_prompt():
     return ChatPromptTemplate.from_messages([
         ("system", system_message),
-        few_shot_prompt,
         ("human", "{input}")
     ])
 

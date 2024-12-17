@@ -9,6 +9,7 @@ from prompt_templates.contextual_query import get_context_query_chain
 from prompt_templates.qa_template import get_qa_chain
 from prompt_templates.intial_template import get_initial_chain
 from prompt_templates.retrieval_check import get_rc_chain
+from prompt_templates.conversation_response import get_conversation_chain
 from prompt_templates.image_template import get_image_chain
 from utils.image_processing import process_image
 from operator import itemgetter
@@ -162,12 +163,13 @@ else:
             if chat_history:
                 st.session_state.messages = chat_history
                 
-                for message in chat_history:
-
-                    if message["role"] == "user":
-                        st.session_state["llm_chat_history"].append(HumanMessage(content=message["content"]))
-                    else:
-                        st.session_state["llm_chat_history"].append(AIMessage(content=message["content"]))
+                # Only load into llm_chat_history if it's empty
+                if not st.session_state["llm_chat_history"]:
+                    for message in chat_history:
+                        if message["role"] == "user":
+                            st.session_state["llm_chat_history"].append(HumanMessage(content=message["content"]))
+                        else:
+                            st.session_state["llm_chat_history"].append(AIMessage(content=message["content"]))
             else:
                 # Initialize empty messages list
                 st.session_state.messages = []
@@ -185,7 +187,7 @@ else:
         retriever = get_retriever()
 
         contextual_query_chain = get_context_query_chain(llm)
-        retriever_chain = contextual_query_chain | retriever
+        # retriever_chain = contextual_query_chain | retriever
         image_chain = get_image_chain(llm)
         
         # rag_chain = (
@@ -203,6 +205,8 @@ else:
         rag_chain = get_qa_chain(llm, contextual_query_chain, retriever)
         initial_chain = get_initial_chain(llm)
         retrieval_check_chain = get_rc_chain(llm)
+        
+        print("llm_chat_history: ", llm_chat_history)
 
         st.title("DSA Chatbot")
 
@@ -375,17 +379,28 @@ else:
                             st.session_state.messages.append({"role": "assistant", "content": full_response})
                         else:
                             print("RAN no-IMAGE CHAIN\n")
-                            # Check if the user input requires a retrieval function
-                            response = retrieval_check_chain.invoke({
-                                "input": prompt
+                            
+                            # First, get the reformulated query
+                            reformulated_query = contextual_query_chain.invoke({
+                                "input": prompt,
+                                "chat_history": llm_chat_history
                             })
                             
-                            if response == "true":
+                            # Then check if it needs retrieval
+                            needs_retrieval = retrieval_check_chain.invoke({
+                                "input": reformulated_query
+                            })
+                            
+                            print("\nReformulated Query: ", reformulated_query)
+                            
+                            # needs_retrieval = "true"
+                            
+                            if needs_retrieval == "true":
                                 print("RAN TRUE CHAIN\n")
                                 # Stream the response from the RAG chain for a specific input
                                 for chunk in rag_chain.stream({
-                                "input": prompt,
-                                "chat_history": llm_chat_history,
+                                    "input": prompt,
+                                    "chat_history": llm_chat_history,
                                     "user_level": user_level
                                 }):
                                 # if answer_chunk := chunk.get("answer"):
@@ -410,10 +425,13 @@ else:
                             
                             else:
                                 print("RAN FALSE CHAIN\n")
-                            
-                                for chunk in contextual_query_chain.stream({
+
+                                conversation_chain = get_conversation_chain(llm)
+                                
+                                for chunk in conversation_chain.stream({
                                     "input": prompt,
-                                    "chat_history": llm_chat_history
+                                    "chat_history": llm_chat_history,
+                                    "user_level": user_level
                                 }):
                                     stream.append(chunk)
                                     
