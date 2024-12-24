@@ -135,11 +135,13 @@ vector_store = AstraDBVectorStore(
     token=st.secrets["ASTRA_DB_APPLICATION_TOKEN"],
     namespace=st.secrets["ASTRA_DB_NAMESPACE"],
 )
+
  
 def split_chunks():
     try:
         # Path to markdown directory
-        md_dir = Path("data/md/")
+        # md_dir = Path("data/md/")
+        md_dir = Path("scraped_content/")
         chunk_id_counter = 1  # Initialize a counter for unique chunk IDs
         ids = []
         documents = []
@@ -188,7 +190,7 @@ def get_retriever():
         search_type="mmr",
         search_kwargs={"k": 10, "fetch_k": 20, "lambda_mult": 0.5},
     )
-    
+
     return retriever
 
 def get_vector_store():

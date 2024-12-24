@@ -24,11 +24,7 @@ from streamlit_authenticator.utilities import (CredentialsError,
                                                RegisterError,
                                                ResetError,
                                                UpdateError)
-from db.db_connection import ChatDatabase
-from utils.tools import tools
-from langchain.agents import AgentType
-from langchain.agents import initialize_agent
-from langchain.memory import ConversationBufferMemory
+from utils.db_connection import ChatDatabase
 
 CHATBOT_VERSION = "1.2.0"
 DEFAULT_MODEL = "gpt-4o-mini"
@@ -61,38 +57,7 @@ llm = ChatOpenAI(
 )
 
 #####################
-from langchain_core.agents import AgentFinish, AgentAction
-from langchain.agents import create_structured_chat_agent
-from langchain.agents import AgentExecutor
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate
-# Initialize memory to maintain conversation context
-# memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
-# # Define the system message for the agent
-# system_message = """You are a helpful DSA chatbot assistant that can help users with their questions.
-#     You have access to tools that can help you update and retrieve user competency levels."""
-
-# # Create the agent with updated syntax
-# agent = create_structured_chat_agent(
-#     llm=llm,
-#     tools=tools,
-#     prompt = ChatPromptTemplate([
-#         ("system", system_message),
-#         ("human", "{input}")
-#     ])
-# )
-
-
-
-# # Create the agent executor
-# agent_executor = AgentExecutor(
-#     agent=agent,
-#     tools=tools,
-#     memory=memory,
-#     verbose=True,
-#     handle_parsing_errors=True
-# )
 #####################
 
 # Initialize the database manager
