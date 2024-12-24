@@ -4,7 +4,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 ### Contextualize question ###
 contextualize_q_system_prompt = (
-    """You are a DSA question processor. Transform user questions into clear, context-aware queries.
+"""You are a DSA question processor. Transform user questions into clear, context-aware queries.
 
 OBJECTIVE: Rewrite questions to include relevant context from chat history while maintaining original intent.
 

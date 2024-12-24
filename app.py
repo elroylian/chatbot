@@ -25,6 +25,15 @@ from streamlit_authenticator.utilities import (CredentialsError,
                                                ResetError,
                                                UpdateError)
 from db.db_connection import ChatDatabase
+from utils.tools import tools
+from langchain.agents import AgentType
+from langchain.agents import initialize_agent
+from langchain.memory import ConversationBufferMemory
+
+CHATBOT_VERSION = "1.2.0"
+DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_TEMPERATURE = 0
+DB_FILENAME = "chat.db"
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
 os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
@@ -42,28 +51,64 @@ authenticator = stauth.Authenticate(
     config['cookie']['key'],
     config['cookie']['expiry_days']
 )
-    
 
+
+# Initialize the LLM
+llm = ChatOpenAI(
+    model = DEFAULT_MODEL,
+    api_key = st.secrets["OpenAI_key"],
+    temperature = DEFAULT_TEMPERATURE
+)
+
+#####################
+from langchain_core.agents import AgentFinish, AgentAction
+from langchain.agents import create_structured_chat_agent
+from langchain.agents import AgentExecutor
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate
+# Initialize memory to maintain conversation context
+# memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+# # Define the system message for the agent
+# system_message = """You are a helpful DSA chatbot assistant that can help users with their questions.
+#     You have access to tools that can help you update and retrieve user competency levels."""
+
+# # Create the agent with updated syntax
+# agent = create_structured_chat_agent(
+#     llm=llm,
+#     tools=tools,
+#     prompt = ChatPromptTemplate([
+#         ("system", system_message),
+#         ("human", "{input}")
+#     ])
+# )
+
+
+
+# # Create the agent executor
+# agent_executor = AgentExecutor(
+#     agent=agent,
+#     tools=tools,
+#     memory=memory,
+#     verbose=True,
+#     handle_parsing_errors=True
+# )
+#####################
 
 # Initialize the database manager
 @st.cache_resource
 def get_database():
-    return ChatDatabase('chat.db')
+    return ChatDatabase(DB_FILENAME)
 
 db = get_database()
 
 def clear_session():
     # Reset chat history when user logs out
     print("Clearing session variables")
-    if "messages" in st.session_state:
-        del st.session_state["messages"]
-        # print("messages cleared")
-    if "llm_chat_history" in st.session_state:
-        del st.session_state["llm_chat_history"]
-        # print("llm_chat_history cleared")
-    if "user_level" in st.session_state:
-        del st.session_state["user_level"]
-        # print("user_level cleared")
+    session_vars = ["messages", "llm_chat_history", "user_level"]
+    for var in session_vars:
+        if var in st.session_state:
+            del st.session_state[var]
         
 def join_message_stream(stream):
     pass
@@ -114,16 +159,6 @@ if st.session_state["authentication_status"] is None or st.session_state["authen
 else:
     # try:
     if st.session_state["authentication_status"]:
-        
-        # Define chatbot version for easier tracking
-        chatbot_version = "1.2.0"
-        
-        # Initialize the LLM
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            api_key=st.secrets["OpenAI_key"],
-            temperature=0
-        )
         
         # Initialize LLM chat history (for context handling)
         if "llm_chat_history" not in st.session_state:
@@ -183,8 +218,12 @@ else:
             st.error("User not found in the database.")
             st.stop()
             
-
-        retriever = get_retriever()
+        try:
+            retriever = get_retriever()
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+            clear_session()
+            st.stop()
 
         contextual_query_chain = get_context_query_chain(llm)
         # retriever_chain = contextual_query_chain | retriever
@@ -213,7 +252,7 @@ else:
         # Add sidebar options
         st.sidebar.title("Options")
         authenticator.logout('Logout','sidebar')
-        st.sidebar.write("Version:", chatbot_version)
+        st.sidebar.write("Version:", CHATBOT_VERSION)
         if st.sidebar.button("Clear Chat History"):
             st.session_state["llm_chat_history"] = []
             st.session_state.messages = []
@@ -237,19 +276,22 @@ else:
             
             if uploaded_files:
                 for uploaded_file in uploaded_files:
-                # Handle different file types
-                    if uploaded_file.type.startswith('image'):
-                        try:
-                            base64_image, processed_image = process_image(uploaded_file)
-                            st.sidebar.image(processed_image, caption="Processed Image")
-                            uploaded_images.append(base64_image)
-                            
-                        except Exception as e:
-                            st.sidebar.error(f"Error processing image: {str(e)}")
-                            
-                    elif uploaded_file.type == "text/plain":
-                        file_content = uploaded_file.read().decode("utf-8")
-                        st.sidebar.write("File Content:", file_content)
+                    if uploaded_file.size > 5 * 1024 * 1024:  # 5MB limit
+                        st.sidebar.error("File too large. Please upload a file smaller than 5MB")
+                    else:
+                        # Handle different file types
+                        if uploaded_file.type.startswith('image'):
+                            try:
+                                base64_image, processed_image = process_image(uploaded_file)
+                                st.sidebar.image(processed_image, caption="Processed Image")
+                                uploaded_images.append(base64_image)
+                                
+                            except Exception as e:
+                                st.sidebar.error(f"Error processing image: {str(e)}")
+                                
+                        elif uploaded_file.type == "text/plain":
+                            file_content = uploaded_file.read().decode("utf-8")
+                            st.sidebar.write("File Content:", file_content)
                         
             if uploaded_images and st.sidebar.button("Clear Images"):
                 uploaded_images = []
@@ -280,10 +322,12 @@ else:
                 # Initialize an empty list to hold the streamed chunks
                 stream = []
 
+                # Before processing user input, validate user level status
                 if st.session_state["user_level"] in ["","null",None]:
                     
+                    # New user needs assessment
                     print("RAN INITIAL CHAIN\n")
-                    with st.spinner("Analyzing your experience level..."):
+                    with st.spinner("Analysing your experience level..."):
                         response = initial_chain.invoke({
                             "input": prompt,
                             "chat_history": llm_chat_history
@@ -342,10 +386,10 @@ else:
                 else:
                 
                     with st.spinner("Thinking..."):
-                        
+                    
                         # Check if the user input contains an image
                         if uploaded_images:
-                            print("RAN IMAGE CHAIN\n")
+                            print("PROCESSING IMAGE QUERY\n\n")
                             messages_content  = [{"type": "text", "text": prompt}]
                             for img in uploaded_images:
                                 messages_content .append({
@@ -378,7 +422,26 @@ else:
                             # Display the full response in the chat message container
                             st.session_state.messages.append({"role": "assistant", "content": full_response})
                         else:
-                            print("RAN no-IMAGE CHAIN\n")
+                            print("PROCESSING NON-IMAGE QUERY\n")
+                            
+                            # try:
+                            #     # Let the agent decide if a tool should be invoked
+                            #     print("Invoking agent with prompt:", prompt)
+                            #     response = agent_executor.invoke({
+                            #         "input": prompt,
+                            #         "chat_history": llm_chat_history
+                            #     })
+                                
+                            #     print("Agent response:", response)
+
+                            #     # Save and display the response
+                            #     st.session_state.messages.append({"role": "assistant", "content": response})
+                            #     db.save_message(user_id, chat_id, "assistant", response)
+                            #     st.markdown(response)
+
+                            # except Exception as e:
+                            #     # Fallback to chains if no tool was invoked
+                            #     print(f"Agent error: {e}")
                             
                             # First, get the reformulated query
                             reformulated_query = contextual_query_chain.invoke({
@@ -449,8 +512,3 @@ else:
 
                                 # Display the full response in the chat message container
                                 st.session_state.messages.append({"role": "assistant", "content": full_response})
-    # except Exception as e:
-    #     st.error(f"An error occurred: {e}")
-    #     st.error("Please contact the administrator.")
-    #     clear_session()
-    #     st.stop()
