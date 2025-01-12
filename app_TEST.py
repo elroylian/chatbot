@@ -197,7 +197,7 @@ else:
         initial_chain = get_initial_chain(llm)
         retrieval_check_chain = get_rc_chain(llm)
         
-        print("llm_chat_history: ", llm_chat_history)
+        # print("llm_chat_history: ", llm_chat_history) # for testing
 
         st.title("DSA Chatbot")
         
@@ -352,7 +352,7 @@ else:
                 
                     with st.spinner("Thinking..."):
                     
-                #         # Check if the user input contains an image
+                        # Check if the user input contains an image
                         if uploaded_images:
                             print("PROCESSING IMAGE QUERY\n\n")
     
@@ -407,7 +407,7 @@ else:
                             
                             state = app.get_state(langgraph_config)
                             messages = state.values["messages"]
-                            print("Messages: ", messages)
+                            # print("Messages: ", messages)
                             
                             stream_message = re.findall(r'\S+|\s+', response)
                             full_response = st.write_stream(stream_message)

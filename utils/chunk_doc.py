@@ -112,6 +112,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter as Rec
 import streamlit as st
 from langchain_astradb import AstraDBVectorStore
 from langchain_core.documents import Document
+from langchain_milvus import Zilliz
 
 # Initialize Embedding Model
 embedding_func = MyEmbeddings()
@@ -128,20 +129,34 @@ embedding_func = MyEmbeddings()
 #     # other params...
 # )
 
-vector_store = AstraDBVectorStore(
-    collection_name="chatbot_collection",
-    embedding=embedding_func,
-    api_endpoint=st.secrets["ASTRA_DB_API_ENDPOINT"],
-    token=st.secrets["ASTRA_DB_APPLICATION_TOKEN"],
-    namespace=st.secrets["ASTRA_DB_NAMESPACE"],
+# vector_store = AstraDBVectorStore(
+#     collection_name="chatbot_collection",
+#     embedding=embedding_func,
+#     api_endpoint=st.secrets["ASTRA_DB_API_ENDPOINT"],
+#     token=st.secrets["ASTRA_DB_APPLICATION_TOKEN"],
+#     namespace=st.secrets["ASTRA_DB_NAMESPACE"],
+# )
+
+vector_store = Zilliz(
+    collection_name="dsa_data",
+    embedding_function=embedding_func,
+    connection_args={
+        "uri": st.secrets["ZILLIZ_CLOUD_URI"],
+        "user": st.secrets["ZILLIZ_CLOUD_USERNAME"],
+        "password": st.secrets["ZILLIZ_CLOUD_PASSWORD"],
+        "token": st.secrets["ZILLIZ_CLOUD_API_KEY"],  # API key, for serverless clusters which can be used as replacements for user and password
+        "secure": True,
+    },
+    auto_id=True,
+    index_params={"metric_type": "COSINE", "index_type": "FLAT"},
 )
 
  
 def split_chunks():
     try:
         # Path to markdown directory
-        # md_dir = Path("data/md/")
-        md_dir = Path("scraped_content/")
+        md_dir = Path("data/md/")
+        # md_dir = Path("scraped_content/")
         chunk_id_counter = 1  # Initialize a counter for unique chunk IDs
         ids = []
         documents = []
@@ -176,20 +191,28 @@ def split_chunks():
                 
                 documents.append(document_to_add)
                 
-                ids.append(str(chunk_id_counter)) # Add document ID to the list
+                # ids.append(str(chunk_id_counter)) # Add document ID to the list
 
-                chunk_id_counter += 1  # Increment the ID counter
+                # chunk_id_counter += 1  # Increment the ID counter
         
-        vector_store.add_documents(documents = documents, ids = ids)
+        vector_store.add_documents(documents = documents)
+        # vector_store.add_documents(documents = documents, ids = ids)
     except Exception as e:
         print(f"Error: {e}")
         
 def get_retriever():
+    # retriever = vector_store.as_retriever(
+    #     #
+    #     search_type="mmr",
+    #     search_kwargs={"k": 10, "fetch_k": 20, "lambda_mult": 0.5},
+    # )
     retriever = vector_store.as_retriever(
         #
-        search_type="mmr",
-        search_kwargs={"k": 10, "fetch_k": 20, "lambda_mult": 0.5},
+        search_type="similarity_score_threshold",
+        search_kwargs={'k': 20,'score_threshold': 0.7},
     )
+    
+    
 
     return retriever
 
