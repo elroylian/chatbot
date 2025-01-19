@@ -19,6 +19,7 @@ from model import llm_selected
 # TODO
 # LLM still unsure how to respond to Thank you, Goodbye, etc. Hi, still okay i guess
 # Keep testing!
+# Change clarification method
 
 # Initialize the retriever
 print("Initializing retriever...")

@@ -293,7 +293,7 @@ else:
                     
                     # print("this is the output:\n",output)
                     response = output["messages"][-1].content
-                    # print("this is the response:\n",response)
+                    print("this is the response:\n",response)
 
                     # gebgrgerg = app.get_state(config).values
                     # print(f'This is the history:\n')

@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.prompts import MessagesPlaceholder
 from operator import itemgetter
 from langchain_core.output_parsers import StrOutputParser
+from model import llm_selected
 
 ### Initial Question ###
 inital_system_prompt = (    """
@@ -46,16 +47,18 @@ initial_q_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
+llm = llm_selected
+
 # Create contextual retrieval chain
-def get_initial_chain(llm):
+def get_initial_chain():
     return (
         {
             "chat_history": itemgetter("chat_history"),
             "input": itemgetter("input")
         }
         | initial_q_prompt
-        | llm
-        | StrOutputParser()
+        | llm.with_structured_output(None, method="json_mode")
+        # | StrOutputParser()
     )
   
   

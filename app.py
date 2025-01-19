@@ -207,7 +207,7 @@ else:
         # )
         
         rag_chain = get_qa_chain(llm, contextual_query_chain, retriever)
-        initial_chain = get_initial_chain(llm)
+        initial_chain = get_initial_chain()
         retrieval_check_chain = get_rc_chain(llm)
         
         print("llm_chat_history: ", llm_chat_history)
@@ -292,6 +292,8 @@ else:
                     
                     # New user needs assessment
                     print("RAN INITIAL CHAIN\n")
+                    print("Chat history: ", len(llm_chat_history))
+                    # if(llm_chat_history):
                     with st.spinner("Analysing your experience level..."):
                         response = initial_chain.invoke({
                             "input": prompt,
@@ -299,55 +301,57 @@ else:
                         })
                     
                     print("this is the response:\n",response)
+                    print(type(response))
                     
-                    if "{" in response and "}" in response:
-                        try:
-                            json_str = response[response.index("{"):response.rindex("}") + 1]
+                    # if "{" in response and "}" in response:
+                    try:
+                    #         json_str = response[response.index("{"):response.rindex("}") + 1]
                             
-                            data = json.loads(json_str)
+                    #         data = json.loads(json_str)
 
-                            # Extract necessary fields
-                            user_level = data.get("data").get("user_level")
-                            db.save_user_data(user_id, user_level,user_email)
+                        # Extract necessary fields
+                        user_level = response.get("data").get("user_level")
+                        db.save_user_data(user_id, user_level,user_email)
+                        print("User level is: ", user_level)
 
-                            # Extract message from LLM
-                            message = data.get("message")
-                            
-                            # Append and save assistant's message
-                            db.save_message(user_id, chat_id, "assistant", message)
-
-                            llm_chat_history.extend(
-                                [
-                                    HumanMessage(content=prompt),
-                                    AIMessage(content=message),
-                                ]
-                            )
-                            stream_message = re.findall(r'\S+|\s+', message)
-                            full_response = st.write_stream(stream_message)
-                            
-                            # Display the full response in the chat message container
-                            st.session_state.messages.append({"role": "assistant", "content": full_response})
-                            
-                            # Validate that necessary information is available
-                            if user_level:
-                                print("###############!!! User level is: ", user_level)
-                                st.session_state["user_level"] = user_level
-
-                        except json.JSONDecodeError:
-                            print(response)
-                            print("Oops! I broke. Sorry about that!")
-                    else:
-                        print("Oops! I broke. Sorry about that! JSON FAILED")
-                        st.write(response)
-                        st.session_state.messages.append({"role": "assistant", "content": response})
+                        # Extract message from LLM
+                        message = response.get("message")
+                        
                         # Append and save assistant's message
-                        db.save_message(user_id, chat_id, "assistant", response)
+                        db.save_message(user_id, chat_id, "assistant", message)
+
                         llm_chat_history.extend(
                             [
-                                HumanMessage(content="Remember, you MUST generate a syntactically correct JSON object."),
-                                AIMessage(content=response),
+                                HumanMessage(content=prompt),
+                                AIMessage(content=message),
                             ]
                         )
+                        stream_message = re.findall(r'\S+|\s+', message)
+                        full_response = st.write_stream(stream_message)
+                        
+                        # Display the full response in the chat message container
+                        st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        
+                        # Validate that necessary information is available
+                        if user_level:
+                            print("###############!!! User level is: ", user_level)
+                            st.session_state["user_level"] = user_level
+
+                    except json.JSONDecodeError:
+                        print(response)
+                        print("Oops! I broke. Sorry about that!")
+                    # else:
+                    #     print("Oops! I broke. Sorry about that! JSON FAILED")
+                    #     st.write(response)
+                    #     st.session_state.messages.append({"role": "assistant", "content": response})
+                    #     # Append and save assistant's message
+                    #     db.save_message(user_id, chat_id, "assistant", response)
+                    #     llm_chat_history.extend(
+                    #         [
+                    #             HumanMessage(content="Remember, you MUST generate a syntactically correct JSON object."),
+                    #             AIMessage(content=response),
+                    #         ]
+                    #     )
                 else:
                 
                     with st.spinner("Thinking..."):
