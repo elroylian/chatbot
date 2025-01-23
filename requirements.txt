@@ -6,6 +6,9 @@ langchain-openai
 langchain-astradb>=0.3.3
 sentence-transformers
 langchain-ollama
+langchain-milvus
+langgraph 
+langsmith
 rank_bm25
 nltk
 langchain-text-splitters
