@@ -170,7 +170,7 @@ else:
                         else:
                             st.session_state["llm_chat_history"].append(AIMessage(content=message["content"]))
                 
-                app.update_state(values = {"messages": llm_chat_history}, config = langgraph_config)
+                # app.update_state(values = {"messages": llm_chat_history}, config = langgraph_config)
             else:
                 # Initialize empty messages list
                 st.session_state.messages = []
@@ -194,7 +194,7 @@ else:
         contextual_query_chain = get_context_query_chain(llm)
         image_chain = get_image_chain(llm)    
         rag_chain = get_qa_chain(llm, contextual_query_chain, retriever)
-        initial_chain = get_initial_chain(llm)
+        initial_chain = get_initial_chain()
         retrieval_check_chain = get_rc_chain(llm)
         
         # print("llm_chat_history: ", llm_chat_history) # for testing
@@ -207,11 +207,12 @@ else:
         st.sidebar.write("Version:", CHATBOT_VERSION)
         if st.sidebar.button("Clear Chat History"):
             st.session_state["llm_chat_history"] = []
-            st.session_state.messages = []
+            st.session_state["messages"] = []
             
             # Get the current state of the app
-            messages = app.get_state(langgraph_config).values["messages"]
-            updated_messages = [RemoveMessage(m.id) for m in messages]
+            # messages = app.get_state(langgraph_config).values["messages"]
+            # updated_messages = [RemoveMessage(m.id) for m in messages]
+            updated_messages = []
             app.update_state(values = {"messages": updated_messages}, config = langgraph_config)
             db.clear_chat_history(user_id, chat_id)
 
@@ -219,17 +220,24 @@ else:
         if st.session_state["user_level"] in ["", "null", None]:
             st.sidebar.warning("Complete your initial assessment to unlock file uploads. Start by asking a question in the chat.")
         else:
-            uploaded_files = st.sidebar.file_uploader("Upload Files (Not Done)", type=["txt", "pdf", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
-
-            # Process the uploaded file if available
-            # if uploaded_file is not None:
-            #     file_details = {
-            #         "filename": uploaded_file.name,
-            #         "filetype": uploaded_file.type,
-            #         "filesize": uploaded_file.size
-            #     }
-            #     st.sidebar.write("File Details:", file_details)
+            if "uploader_key" not in st.session_state:
+                st.session_state["uploader_key"] = 0
+            
+            def update_key():
+                print("UPDATING KEY\n")
+                st.session_state["uploader_key"] += 1
+            
+            uploaded_files = st.sidebar.file_uploader("Upload Files (Not Done)", 
+                                                      type=["txt", "pdf", "docx", "png", "jpg", "jpeg"], 
+                                                      accept_multiple_files=True, 
+                                                      key= st.session_state["uploader_key"]
+                                                      )
+            
+            # To be passed as input to the LLM
             uploaded_images = []
+            
+            # To be displayed in the chat message container
+            test_images = []
             
             if uploaded_files:
                 for uploaded_file in uploaded_files:
@@ -242,6 +250,7 @@ else:
                                 base64_image, processed_image = process_image(uploaded_file)
                                 st.sidebar.image(processed_image, caption="Processed Image")
                                 uploaded_images.append(base64_image)
+                                test_images.append(processed_image)
                                 
                             except Exception as e:
                                 st.sidebar.error(f"Error processing image: {str(e)}")
@@ -382,6 +391,10 @@ else:
                             stream_message = re.findall(r'\S+|\s+', final_message)
                             full_response = st.write_stream(stream_message)
                             
+                            
+                            # st.write(test_images[0])
+                            # st.image(test_images,width=250)
+                            
                             # Save to database and update histories
                             db.save_message(user_id, chat_id, "assistant", full_response)
                             llm_chat_history.extend([
@@ -389,7 +402,11 @@ else:
                                 AIMessage(content=full_response),
                             ])
                             st.session_state.messages.append({"role": "assistant", "content": full_response})
-                
+
+                            
+                            # Clear the uploaded images after processing
+                            update_key()
+                            st.rerun()
                   
                         else:
                             print("PROCESSING NON-IMAGE QUERY\n")

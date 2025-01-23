@@ -209,7 +209,12 @@ def get_retriever():
     retriever = vector_store.as_retriever(
         #
         search_type="similarity_score_threshold",
-        search_kwargs={'k': 20,'score_threshold': 0.7},
+        search_kwargs={
+            'k': 15,        # Increased to get more complete context
+            'fetch_k': 40,  # Larger initial pool
+            'lambda_mult': 0.7,  # Balance between relevance and diversity
+            'score_threshold': 0.65  # Slightly lower to catch related chunks
+        },
     )
     
     

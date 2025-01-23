@@ -5,9 +5,9 @@ import streamlit as st
 from langchain import hub
 from typing import Annotated, Literal, Sequence, Any, Dict
 from typing_extensions import TypedDict
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate, ChatMessagePromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from langgraph.prebuilt import tools_condition
@@ -41,8 +41,8 @@ class AgentState(TypedDict):
 
 def validate_dsa_question(state) -> dict[str, Any]:
     """
-    Determines whether the question is DSA-related, with improved handling of
-    context-dependent questions and greetings.
+    Validates input to either handle DSA questions or engage in friendly conversation,
+    while redirecting other technical questions.
     
     Args:
         state: Current state containing messages and user_level
@@ -58,15 +58,12 @@ def validate_dsa_question(state) -> dict[str, Any]:
     user_level = state["user_level"]
     
     class ValidationResult(BaseModel):
-        is_dsa: str = Field(description="Binary 'yes' or 'no' for DSA relevance")
-        is_greeting: bool = Field(description="Whether the input is a greeting")
-        redirect_message: str = Field(
-            description="Friendly respond that they cannot answer the question and redirect to DSA topics if needed",
-            # default="I'd be happy to help you learn about data structures and algorithms. What DSA topic would you like to explore?"
+        message_type: str = Field(
+            description="Type of message: 'dsa', 'pleasantry', or 'other'",
         )
-        greeting_response: str = Field(
-            description="Friendly greeting response if input is a greeting",
-            default="Hello! I'm your DSA learning assistant. I'd be happy to help you learn about data structures and algorithms. What topic would you like to explore?"
+        response: str = Field(
+            description="Response for pleasantries or redirects",
+            default="I'd be happy to help you learn about data structures and algorithms! Feel free to ask about topics like arrays, linked lists, sorting algorithms, trees, graphs, etc."
         )
 
     # Get context from previous messages if they exist
@@ -77,35 +74,48 @@ def validate_dsa_question(state) -> dict[str, Any]:
     ])
     
     prompt = PromptTemplate(
-        template="""Analyze if this question is DSA-related or a greeting:
+        template="""Analyze the input as a friendly DSA tutor:
 
 Previous conversation:
 {context}
 
 Current input: {question}
 
-First check if the input is a greeting:
-- Common greetings: hi, hello, hey, good morning/afternoon/evening
-- Variations like "hi there", "hello!", etc.
-- If it's a greeting, set is_greeting=true and provide a friendly greeting_response
+Classify the input into one of three categories:
 
-If not a greeting, check if it's DSA-related:
-- Direct questions about DSA concepts
-- Follow-up questions about algorithms/data structures
-- Questions about implementation or complexity
+1. 'dsa' - Questions directly about:
+   - Data Structures (arrays, linked lists, trees, graphs, etc.)
+   - Algorithms (sorting, searching, traversal, etc.)
+   - Algorithm analysis (complexity, Big O notation)
+   - DSA implementation
+   - DSA problem-solving
+
+2. 'pleasantry' - Friendly conversation:
+   - Greetings (hi, hello, hey)
+   - Thanks/gratitude
+   - Goodbyes
+   - Emotional responses ("that makes sense", "I'm confused")
+   - Small encouragements ("got it", "okay I understand")
+   
+3. 'other' - Non-DSA technical content:
+   - General programming
+   - Math questions
+   - Other CS topics
+   - Non-technical questions
+
+For pleasantries: Respond naturally like a friendly tutor
+For other: Redirect to DSA while being encouraging
 
 Return:
-1. is_dsa: "yes" for DSA questions, "no" otherwise
-2. is_greeting: true for greetings, false otherwise
-3. greeting_response: friendly greeting if applicable
-4. redirect_message: friendly suggestion for non-DSA questions""",
+1. message_type: 'dsa', 'pleasantry', or 'other'
+2. response: Natural response for pleasantries or friendly redirect for other""",
         input_variables=["context", "question"]
     )
     
     try:
         model = ChatOpenAI(
             model_name="gpt-4o-mini", 
-            temperature=0, 
+            temperature=0.4,  # Slightly higher temperature for more natural responses
             streaming=True, 
             api_key=st.secrets["OpenAI_key"]
         )
@@ -115,20 +125,18 @@ Return:
             "question": question
         })
         
-        # Handle greetings first
-        if result.is_greeting:
+        if result.message_type == "dsa":
             return {
-                "messages": [*messages, AIMessage(content=result.greeting_response)],
+                "messages": messages,
                 "user_level": user_level,
-                "next": "redirect"  # End after greeting response
+                "next": "proceed"
             }
-        
-        # Handle DSA vs non-DSA questions
-        return {
-            "messages": messages if result.is_dsa.lower() == "yes" else [*messages, AIMessage(content=result.redirect_message)],
-            "user_level": user_level,
-            "next": "proceed" if result.is_dsa.lower() == "yes" else "redirect"
-        }
+        else:  # pleasantry or other
+            return {
+                "messages": [*messages, AIMessage(content=result.response)],
+                "user_level": user_level,
+                "next": "redirect"
+            }
             
     except Exception as e:
         print(f"Validation error: {str(e)}")
@@ -413,11 +421,32 @@ Return ONLY the reformulated question without explanation.
 
 
 ################################################################################################################
+# def agent(state):
+#     """
+#     Invokes the agent model to generate a response based on the current state. Given
+#     the question, it will decide to retrieve using the retriever tool, or simply end.
+
+#     Args:
+#         state (messages): The current state
+
+#     Returns:
+#         dict: The updated state with the agent response appended to messages
+#     """
+#     print("---CALL AGENT---")
+    
+#     # Prompt
+#     prompt = ChatMessagePromptTemplate
+    
+#     messages = state["messages"]
+#     model = ChatOpenAI(temperature=0, model="gpt-4o-mini", streaming=True,api_key=st.secrets["OpenAI_key"])
+#     model = model.bind_tools(tools)
+#     response = model.invoke(messages)
+#     # We return a list, because this will get added to the existing list
+#     return {"messages": [response]}
 def agent(state):
     """
-    Invokes the agent model to generate a response based on the current state. Given
-    the question, it will decide to retrieve using the retriever tool, or simply end.
-
+    Invokes the agent model to generate a response based on confidence level.
+    
     Args:
         state (messages): The current state
 
@@ -426,67 +455,153 @@ def agent(state):
     """
     print("---CALL AGENT---")
     messages = state["messages"]
-    model = ChatOpenAI(temperature=0, model="gpt-4o-mini", streaming=True,api_key=st.secrets["OpenAI_key"])
+    
+    # System message that enforces confidence-based retrieval
+    system_message = """You are a DSA expert assistant. For every question:
+
+1. First, assess your confidence in providing a complete, accurate answer:
+   - Consider if you need specific implementation details
+   - Consider if you need exact complexity analysis
+   - Consider if you need specific examples or edge cases
+
+2. If your confidence is less than 90%%:
+   - ALWAYS use the retrieve_documents tool
+   - Base your answer on the retrieved information
+   - Acknowledge when using retrieved information
+
+3. If your confidence is 90%% or higher:
+   - You may answer directly from your knowledge
+   - Still use the tool if additional detail would be helpful
+   - Mention that you're confident in your direct answer
+
+4. Always be explicit about tool usage:
+   - "Let me check our reference materials for specific details..."
+   - "I'm very confident about this, but let me verify some details..."
+   - "This requires checking our documentation for precise information..."
+
+Remember: It's better to verify with the tool than risk providing incomplete or inaccurate information."""
+
+    # Prepare messages with system instruction
+    full_messages = [
+        HumanMessage(content=system_message),
+        *messages
+    ]
+    
+    # Initialize model with tools
+    model = ChatOpenAI(temperature=0, model="gpt-4o-mini", streaming=True, api_key=st.secrets["OpenAI_key"])
     model = model.bind_tools(tools)
-    response = model.invoke(messages)
-    # We return a list, because this will get added to the existing list
+    
+    # Get response
+    response = model.invoke(full_messages)
+    
     return {"messages": [response]}
 
-def grade_documents(state) -> Literal["generate", "rewrite"]:
+def grade_documents(state) -> Literal["generate", "rewrite", "clarify"]:
     """
-    Determines whether the retrieved documents are relevant to the question.
-
-    Args:
-        state (messages): The current state
-
+    Enhanced grading system for retrieved DSA documents.
+    
+    Evaluates:
+    1. Relevance to the question
+    2. Completeness of the answer
+    3. Technical accuracy
+    4. Need for clarification
+    
     Returns:
-        str: A decision for whether the documents are relevant or not
+    - "generate": When documents are good enough to generate response
+    - "rewrite": When documents aren't relevant enough
+    - "clarify": When question needs clarification
     """
-
-    print("---CHECK RELEVANCE---")
-
-    # Data model
-    class grade(BaseModel):
-        """Binary score for relevance check."""
-
-        binary_score: str = Field(description="Relevance score 'yes' or 'no'")
-
-    # LLM
-    model = ChatOpenAI(temperature=0, model="gpt-4o-mini", streaming=True,api_key=st.secrets["OpenAI_key"])
-
-    # LLM with tool and validation
-    llm_with_tool = model.with_structured_output(grade)
-
-    # Prompt
-    prompt = PromptTemplate(
-        template="""You are a grader assessing relevance of a retrieved document to a user question. \n 
-        Here is the retrieved document: \n\n {context} \n\n
-        Here is the user question: {question} \n
-        If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. \n
-        Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question.""",
-        input_variables=["context", "question"],
-    )
-
-    # Chain
-    chain = prompt | llm_with_tool
+    print("---ENHANCED GRADING SYSTEM---")
+    
+    class GradeResult(BaseModel):
+        relevance_score: float = Field(description="0-1 score for topic relevance")
+        completeness_score: float = Field(description="0-1 score for answer completeness")
+        technical_accuracy: float = Field(description="0-1 score for technical accuracy")
+        needs_clarification: bool = Field(description="If question needs clarification")
+        reasoning: str = Field(description="Explanation for the grading decision")
 
     messages = state["messages"]
-    last_message = messages[-1]
-
     question = messages[0].content
-    docs = last_message.content
+    retrieved_docs = messages[-1].content
 
-    scored_result = chain.invoke({"question": question, "context": docs})
+    # Define the grading prompt
+    prompt = PromptTemplate(
+        template="""You are a DSA expert grading retrieved content.
 
-    score = scored_result.binary_score
+Question: {question}
 
-    if score == "yes":
-        print("---DECISION: DOCS RELEVANT---")
-        return "generate"
+Retrieved Content:
+{content}
 
-    else:
-        print("---DECISION: DOCS NOT RELEVANT---")
-        print(score)
+Grade this content on:
+1. Relevance: Does it directly address the DSA concepts in the question?
+2. Completeness: Does it cover all aspects needed for a good answer?
+3. Technical Accuracy: Is the DSA information correct and precise?
+4. Clarity: Is the question clear or needs clarification?
+
+Example DSA concepts to check for:
+- Data structure definitions and properties
+- Algorithm steps and processes
+- Time/space complexity mentions
+- Implementation details
+- Common use cases and examples
+
+Return scores as decimals between 0 and 1, where:
+- 0.0-0.3: Poor
+- 0.4-0.6: Moderate
+- 0.7-1.0: Good
+
+Also explain your reasoning.""",
+        input_variables=["question", "content"]
+    )
+
+    try:
+        # Initialize model with lower temperature for consistent grading
+        model = ChatOpenAI(
+            model_name="gpt-4o-mini",
+            temperature=0,
+            streaming=True,
+            api_key=st.secrets["OpenAI_key"]
+        )
+        
+        # Grade with structured output
+        chain = prompt | model.with_structured_output(GradeResult)
+        result = chain.invoke({
+            "question": question,
+            "content": retrieved_docs
+        })
+        
+        print(f"Grading Results:\n"
+              f"Relevance: {result.relevance_score:.2f}\n"
+              f"Completeness: {result.completeness_score:.2f}\n"
+              f"Technical Accuracy: {result.technical_accuracy:.2f}\n"
+              f"Needs Clarification: {result.needs_clarification}")
+        
+        # Decision logic
+        if result.needs_clarification:
+            print("---DECISION: NEEDS CLARIFICATION---")
+            return "clarify"
+            
+        # Calculate weighted average score
+        weighted_score = (
+            result.relevance_score * 0.4 +      # Relevance is most important
+            result.completeness_score * 0.3 +    # Completeness next
+            result.technical_accuracy * 0.3      # Technical accuracy equally important
+        )
+        
+        # Decision thresholds
+        GOOD_THRESHOLD = 0.65
+        
+        if weighted_score >= GOOD_THRESHOLD:
+            print("---DECISION: CONTENT GOOD ENOUGH TO GENERATE---")
+            return "generate"
+        else:
+            print("---DECISION: NEED TO REWRITE QUERY---")
+            return "rewrite"
+
+    except Exception as e:
+        print(f"Grading error: {str(e)}")
+        # On error, default to rewrite for safety
         return "rewrite"
     
 def rewrite(state):
@@ -522,16 +637,31 @@ def rewrite(state):
     return {"messages": [response]}
 
 def generate(state):
-    """Debug version of generate with content validation"""
+    """Generate response based on retrieved content and question"""
     print("\n=== DEBUG: GENERATE NODE ===")
     messages = state["messages"]
-    question = messages[-1].content
+    print("Messages: ", state["messages"])
+    
+    # Find the last actual question by looking for the last HumanMessage
+    # that triggered the retrieval flow
+    question = None
+    
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            question = msg.content
+            
+    if not question:
+        return {
+            "messages": [AIMessage(content="I couldn't properly process your question. Could you please rephrase it?")],
+            "user_level": state["user_level"]
+        }
+        
     user_level = state["user_level"]
-    docs = messages[-1].content
+    docs = messages[-1].content  # Retrieved content is always last
     
     print(f"Generate received question: {question}")
     print(f"User level: {user_level}")
-    print(f"Docs length: {len(docs) if docs else 'None'}")
+    # print(f"Docs length: {len(docs) if docs else 'None'}")
     
     if not docs or len(docs.strip()) < 10:
         print("---NO CONTENT TO GENERATE FROM---")
@@ -634,27 +764,31 @@ Question: {question}""")
 # Graph setup
 workflow = StateGraph(AgentState)
 
-# Add nodes - remove the rewrite node
-workflow.add_node("clarify", clarify_question)
+# Add nodes
 workflow.add_node("validate_topic", validate_dsa_question)
+workflow.add_node("clarify", clarify_question)
 workflow.add_node("agent", agent)
 retrieve = ToolNode([retriever_tool])
 workflow.add_node("retrieve", retrieve)
 workflow.add_node("generate", generate)
-workflow.add_node("rewrite", rewrite)  # Re-writing the question
+workflow.add_node("rewrite", rewrite)
 
 # Add edges
-workflow.add_edge(START, "clarify")
-workflow.add_edge("clarify", "validate_topic")
+workflow.add_edge(START, "validate_topic")
 
+# Modify validation to return three possible outcomes
 workflow.add_conditional_edges(
     "validate_topic",
     lambda x: x["next"],
     {
         "proceed": "agent",
+        "clarify": "clarify",
         "redirect": END
     }
 )
+
+# After clarification, go to agent
+workflow.add_edge("clarify", "agent")
 
 workflow.add_conditional_edges(
     "agent",
@@ -665,18 +799,13 @@ workflow.add_conditional_edges(
     }
 )
 
-# workflow.add_conditional_edges(
-#     "retrieve",
-#     grade_documents,
-    
-#     {
-#         "generate": "generate",
-#         "rewrite": "agent"  # Changed from "rewrite" to "agent"
-#     }
-# )
 workflow.add_conditional_edges(
     "retrieve",
     grade_documents,
+    {
+        "generate": "generate",
+        "rewrite": "rewrite"
+    }
 )
 
 workflow.add_edge("generate", END)
