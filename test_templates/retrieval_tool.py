@@ -804,7 +804,8 @@ workflow.add_conditional_edges(
     grade_documents,
     {
         "generate": "generate",
-        "rewrite": "rewrite"
+        "rewrite": "rewrite",
+        "clarify": "clarify"
     }
 )
 
