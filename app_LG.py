@@ -30,7 +30,7 @@ from test_templates.intial_template import app
 from test_templates.retrieval_tool import graph
 from test_templates.image_template import graph as image_graph
 
-CHATBOT_VERSION = "1.4.0"
+CHATBOT_VERSION = "1.4.1"
 DB_FILENAME = "chat.db"
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
