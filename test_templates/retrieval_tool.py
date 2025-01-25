@@ -14,7 +14,6 @@ from langgraph.prebuilt import tools_condition
 from langgraph.graph.message import add_messages
 from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
-from model import llm_selected
 
 # TODO
 # LLM still unsure how to respond to Thank you, Goodbye, etc. Hi, still okay i guess
@@ -40,119 +39,90 @@ class AgentState(TypedDict):
     user_level: str
 
 def validate_dsa_question(state) -> dict[str, Any]:
-    """
-    Validates input to either handle DSA questions or engage in friendly conversation,
-    while redirecting other technical questions.
-    
-    Args:
-        state: Current state containing messages and user_level
-        
-    Returns:
-        dict[str, Any]: Dictionary containing:
-            - messages: List of conversation messages
-            - user_level: User's current level
-            - next: Literal["proceed", "redirect"] indicating next action
-    """
+    """Validates input to handle DSA questions, ensuring English-only interaction."""
     messages = state["messages"]
     question = messages[-1].content
     user_level = state["user_level"]
     
     class ValidationResult(BaseModel):
-        message_type: str = Field(
-            description="Type of message: 'dsa', 'pleasantry', or 'other'",
-        )
-        response: str = Field(
-            description="Response for pleasantries or redirects",
-            default="I'd be happy to help you learn about data structures and algorithms! Feel free to ask about topics like arrays, linked lists, sorting algorithms, trees, graphs, etc."
-        )
+        message_type: str = Field(description="Type of message: 'dsa', 'pleasantry', 'non_english', or 'other'")
+        response: str = Field(description="Response for non-DSA inputs")
 
-    # Get context from previous messages if they exist
     context_messages = messages[-6:-1] if len(messages) > 6 else messages[:-1]
-    conversation_context = "\n".join([
-        f"{'User: ' if isinstance(m, HumanMessage) else 'Assistant: '}{m.content}"
-        for m in context_messages
-    ])
+    conversation_context = "\n".join([f"{'User: ' if isinstance(m, HumanMessage) else 'Assistant: '}{m.content}" for m in context_messages])
     
     prompt = PromptTemplate(
         template="""Analyze the input as a friendly DSA tutor:
 
-Previous conversation:
-{context}
+    Previous conversation:
+    {context}
 
-Current input: {question}
+    Current input: {question}
 
-Classify the input into one of three categories:
+    Classify the input into:
 
-1. 'dsa' - Questions directly about:
-   - Data Structures (arrays, linked lists, trees, graphs, etc.)
-   - Algorithms (sorting, searching, traversal, etc.)
-   - Algorithm analysis (complexity, Big O notation)
-   - DSA implementation
-   - DSA problem-solving
+    1. 'dsa' - Questions directly about:
+    - Data Structures (arrays, linked lists, trees, graphs, etc.)
+    - Algorithms (sorting, searching, traversal, etc.)
+    - Algorithm analysis (complexity, Big O notation)
+    - DSA implementation
+    - DSA problem-solving
+    - Must be in English
 
-2. 'pleasantry' - Friendly conversation:
-   - Greetings (hi, hello, hey)
-   - Thanks/gratitude
-   - Goodbyes
-   - Emotional responses ("that makes sense", "I'm confused")
-   - Small encouragements ("got it", "okay I understand")
-   
-3. 'other' - Non-DSA technical content:
-   - General programming
-   - Math questions
-   - Other CS topics
-   - Non-technical questions
+    2. 'pleasantry' - Friendly conversation:
+    - Greetings (hi, hello, hey)
+    - Thanks/gratitude
+    - Goodbyes
+    - Emotional responses ("that makes sense", "I'm confused")
+    - Small encouragements ("got it", "okay I understand")
+    
+    3. 'non_english' - Any non-English input:
+    - Questions in other languages
+    - Mixed language content
+    - Non-English characters/scripts
+    
+    4. 'other' - Non-DSA technical content:
+    - General programming
+    - Math questions
+    - Other CS topics
+    - Non-technical questions
 
-For pleasantries: Respond naturally like a friendly tutor
-For other: Redirect to DSA while being encouraging
+    For pleasantries: Respond naturally like a friendly tutor
+    For non_english: Respond with English-only policy reminder
+    For other: Redirect to DSA while being encouraging
 
-Return:
-1. message_type: 'dsa', 'pleasantry', or 'other'
-2. response: Natural response for pleasantries or friendly redirect for other""",
+    Return:
+    1. message_type: 'dsa', 'pleasantry', 'non_english', or 'other'
+    2. response: Appropriate response for non-DSA inputs""",
         input_variables=["context", "question"]
     )
     
     try:
-        model = ChatOpenAI(
-            model_name="gpt-4o-mini", 
-            temperature=0.4,  # Slightly higher temperature for more natural responses
-            streaming=True, 
-            api_key=st.secrets["OpenAI_key"]
-        )
+        model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.5, streaming=True, api_key=st.secrets["OpenAI_key"])
         chain = prompt | model.with_structured_output(ValidationResult)
-        result = chain.invoke({
-            "context": conversation_context,
-            "question": question
-        })
+        result = chain.invoke({"context": conversation_context, "question": question})
         
         if result.message_type == "dsa":
+            return {"messages": messages, "user_level": user_level, "next": "proceed"}
+        elif result.message_type == "non_english":
             return {
-                "messages": messages,
-                "user_level": user_level,
-                "next": "proceed"
-            }
-        else:  # pleasantry or other
-            return {
-                "messages": [*messages, AIMessage(content=result.response)],
+                "messages": [*messages, AIMessage(content="I can only communicate in English. Please rephrase your question in English.")],
                 "user_level": user_level,
                 "next": "redirect"
             }
+        else:
+            return {"messages": [*messages, AIMessage(content=result.response)], "user_level": user_level, "next": "redirect"}
             
     except Exception as e:
         print(f"Validation error: {str(e)}")
-        # On error, proceed with original message
-        return {
-            "messages": messages,
-            "user_level": user_level,
-            "next": "proceed"
-        }
+        return {"messages": messages, "user_level": user_level, "next": "proceed"}
 
 def clarify_question(state):
     """
     Clarifies ambiguous questions by maintaining conversation context,
     with improved handling of pronoun references to DSA concepts.
     """
-    print("\n=== DEBUG: CLARIFY NODE ===")
+    print("\n=== CLARIFY NODE ===")
     messages = state["messages"]
     current_question = messages[-1].content
     print(f"Original question: {current_question}")
@@ -165,9 +135,6 @@ def clarify_question(state):
     ])
     
     class ClarificationResult(BaseModel):
-        needs_clarification: bool = Field(
-            description="Set to true if the question contains pronouns or implicit references to previously discussed DSA concepts"
-        )
         clarified_question: str = Field(
             description="The clarified version of the question with pronouns replaced by their referents",
             default=""  # Provide empty string as default
@@ -496,7 +463,7 @@ Remember: It's better to verify with the tool than risk providing incomplete or 
     
     return {"messages": [response]}
 
-def grade_documents(state) -> Literal["generate", "rewrite", "clarify"]:
+def grade_documents(state) -> Literal["generate", "rewrite"]:
     """
     Enhanced grading system for retrieved DSA documents.
     
@@ -517,7 +484,6 @@ def grade_documents(state) -> Literal["generate", "rewrite", "clarify"]:
         relevance_score: float = Field(description="0-1 score for topic relevance")
         completeness_score: float = Field(description="0-1 score for answer completeness")
         technical_accuracy: float = Field(description="0-1 score for technical accuracy")
-        needs_clarification: bool = Field(description="If question needs clarification")
         reasoning: str = Field(description="Explanation for the grading decision")
 
     messages = state["messages"]
@@ -574,13 +540,7 @@ Also explain your reasoning.""",
         print(f"Grading Results:\n"
               f"Relevance: {result.relevance_score:.2f}\n"
               f"Completeness: {result.completeness_score:.2f}\n"
-              f"Technical Accuracy: {result.technical_accuracy:.2f}\n"
-              f"Needs Clarification: {result.needs_clarification}")
-        
-        # Decision logic
-        if result.needs_clarification:
-            print("---DECISION: NEEDS CLARIFICATION---")
-            return "clarify"
+              f"Technical Accuracy: {result.technical_accuracy:.2f}\n")
             
         # Calculate weighted average score
         weighted_score = (
@@ -683,67 +643,31 @@ def generate(state):
             input_variables=['context', 'question','user_level'], 
             input_types={}, 
             partial_variables={}, 
-            template="""You are a DSA expert tutor. Adapt your teaching style to the user's level while maintaining technical accuracy.
+            template="""
+                You are a DSA expert tutor. Adapt your teaching style to the user's level while maintaining technical accuracy.
 
-Current User Level: {user_level}
+                Current User Level: {user_level}
 
-• BEGINNER LEVEL APPROACH:
-  • Use simple analogies and metaphors
-    • Compare arrays to parking lots
-    • Explain stacks like plates in a cafeteria
-    • Describe trees as family trees
-  • Focus on basic understanding
-    • Avoid complexity discussions
-    • Use step-by-step explanations
-    • Provide visual examples when possible
-  • Keep language simple
-    • Minimize technical jargon
-    • Use everyday examples
-    • Explain concepts interactively
+                [TEACHING APPROACHES]
+                BEGINNER: Simple analogies, basic understanding, minimal jargon
+                INTERMEDIATE: Basic complexity, implementation details, code examples
+                ADVANCED: Deep optimization, system considerations, complex trade-offs
 
-• INTERMEDIATE LEVEL APPROACH:
-  • Technical content focus
-    • Include basic time/space complexity
-    • Show implementation details
-    • Provide code examples
-  • Teaching methods
-    • Compare different approaches
-    • Explain basic trade-offs
-    • Connect related concepts
-  • Code implementation
-    • Show practical examples
-    • Discuss common patterns
-    • Address basic optimizations
+                • UNIVERSAL RULES:
+                • Stay within DSA scope
+                    • Focus on one concept at a time
+                    • Offer to explore related topics after
+                • Use context appropriately
+                    • Start with provided context: "{context}"
+                    • Clearly indicate when using general knowledge
+                    • Stay within user's competency level
+                • Maintain level-appropriate depth
+                    • Match technical depth to user level
+                    • Scale example complexity appropriately
+                    • Use suitable terminology
 
-• ADVANCED LEVEL APPROACH:
-  • Technical depth
-    • Deep optimization discussions
-    • Thorough edge case analysis
-    • Performance considerations
-  • System considerations
-    • Memory/cache implications
-    • Concurrency aspects
-    • Scalability factors
-  • Implementation focus
-    • Advanced optimization techniques
-    • System design impacts
-    • Complex trade-offs
-
-• UNIVERSAL RULES:
-  • Stay within DSA scope
-    • Redirect non-DSA questions politely
-    • Focus on one concept at a time
-    • Offer to explore related topics after
-  • Use context appropriately
-    • Start with provided context: "{context}"
-    • Clearly indicate when using general knowledge
-    • Stay within user's competency level
-  • Maintain level-appropriate depth
-    • Match technical depth to user level
-    • Scale example complexity appropriately
-    • Use suitable terminology
-
-Question: {question}""")
+                Question: {question}
+                """)
         # prompt = hub.pull("rlm/rag-prompt")
         
         chain = prompt | llm | StrOutputParser()
@@ -805,7 +729,6 @@ workflow.add_conditional_edges(
     {
         "generate": "generate",
         "rewrite": "rewrite",
-        "clarify": "clarify"
     }
 )
 
