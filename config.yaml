@@ -24,3 +24,12 @@ credentials:
       roles:
       - user
       - tester
+    testuser1:
+      email: testuser1@gmail.com
+      first_name: Test
+      last_name: User
+      logged_in: false
+      password: $2b$12$ZB5pt6eYXYjbLLxTILpeSu2SzQuS6luR6yUL4eIHD9uJaRh0AoZq6
+      password_hint: Abcde123!
+      roles:
+      - user
