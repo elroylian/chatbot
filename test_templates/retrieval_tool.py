@@ -434,17 +434,10 @@ def agent(state):
 2. If your confidence is less than 90%%:
    - ALWAYS use the retrieve_documents tool
    - Base your answer on the retrieved information
-   - Acknowledge when using retrieved information
 
 3. If your confidence is 90%% or higher:
    - You may answer directly from your knowledge
    - Still use the tool if additional detail would be helpful
-   - Mention that you're confident in your direct answer
-
-4. Always be explicit about tool usage:
-   - "Let me check our reference materials for specific details..."
-   - "I'm very confident about this, but let me verify some details..."
-   - "This requires checking our documentation for precise information..."
 
 Remember: It's better to verify with the tool than risk providing incomplete or inaccurate information."""
 
