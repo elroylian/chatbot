@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from langgraph.graph.message import add_messages
 from langgraph.graph import END, StateGraph, START
 import json
+import streamlit as st
 
 class AgentState(TypedDict):
     """State management for the image processing workflow"""
@@ -25,14 +26,12 @@ def generate_dsa_response(state: AgentState) -> Dict[str, Any]:
     user_level = state["user_level"]
     
     # Friendly, conversational system message
-    system_msg = f"""You are a friendly DSA tutor having a conversation with a student about the concepts shown in their image.
+    system_msg = f"""You are a friendly DSA tutor, explain the concepts shown in the image based on the user level.
     User Level: {user_level}
     
     Structure your response with these sections, using a friendly tone throughout:
-
-    1. Start with a warm, conversational greeting that acknowledges what you see in the image
     
-    2. Use these section headers and content guidelines:
+    1. Use these section headers and content guidelines:
     
        **What We're Looking At**
        - Friendly overview of the DSA concepts in the image
@@ -52,18 +51,22 @@ def generate_dsa_response(state: AgentState) -> Dict[str, Any]:
        - Share interesting applications
        - Make relatable connections to everyday experiences
     
-    3. End with an encouraging note and invitation for questions
+    2. End with an encouraging note and invitation for questions
     
     Remember to:
     - Maintain section headers for clarity while keeping content conversational
     - Balance structure with friendly, engaging explanations
     - Use subheadings to organize detailed explanations
-    - Keep the overall tone warm and encouraging
     """
     
     try:
         # Initialize model
-        model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+        model = ChatOpenAI(
+            model_name="gpt-4o-mini",
+            temperature=0,
+            streaming=True,
+            api_key=st.secrets["OpenAI_key"]
+        )
         
         # Create full message list with system prompt
         full_messages = [
@@ -96,20 +99,30 @@ def validate_image_content(state: AgentState) -> Dict[str, Any]:
         # Initialize model for image analysis
         model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
         
-        # System message for validation
-        system_msg = """Analyze the provided image for DSA (Data Structures & Algorithms) content.
-        Look for:
+        # System message for validation with stronger formatting requirements
+        system_msg = """You are an image analyzer for DSA (Data Structures & Algorithms) content.
+        
+        Analyze the provided image for:
         - Data structure visualizations (arrays, trees, graphs, etc.)
         - Algorithm flowcharts or diagrams
         - Code snippets showing DSA implementations
         - Step-by-step algorithm demonstrations
         
-        Return a JSON object without any markdown formatting or code blocks, using this exact format:
+        You MUST respond with ONLY a JSON object in EXACTLY this format, with no additional text or explanation:
         {
             "contains_dsa_content": true/false,
             "identified_concepts": ["concept1", "concept2"],
-            "confidence_score": 0.0-1.0
+            "confidence_score": 0.0
         }
+        
+        Rules for the response:
+        1. ONLY return the JSON object, no other text
+        2. No markdown formatting
+        3. No code blocks
+        4. No explanations before or after
+        5. Use double quotes for strings
+        6. confidence_score must be a number between 0 and 1
+        7. identified_concepts must be a list of strings, even if empty
         """
         
         # Create full message list with system prompt
@@ -120,22 +133,33 @@ def validate_image_content(state: AgentState) -> Dict[str, Any]:
         
         # Get response
         validation_response = model.invoke(full_messages)
+        content = validation_response.content.strip()
         
+        # Additional cleaning to handle potential formatting issues
         try:
-            # Extract JSON from potential markdown code blocks
-            content = validation_response.content
-            if "```json" in content:
-                # Extract content between ```json and ```
-                json_str = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                # Extract content between ``` and ```
-                json_str = content.split("```")[1].split("```")[0].strip()
-            else:
-                # Assume the content is raw JSON
-                json_str = content
-                
+            # First try direct JSON parsing
+            if not content.startswith("{"):
+                # If response includes other text, try to extract JSON
+                import re
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    content = json_match.group(0)
+            
+            # Remove any markdown formatting
+            content = content.replace('```json', '').replace('```', '')
+            
             # Parse the cleaned JSON string
-            result = ImageAnalysisResult.parse_raw(json_str)
+            parsed_data = json.loads(content)
+            
+            # Ensure the parsed data has all required fields with correct types
+            validated_data = {
+                "contains_dsa_content": bool(parsed_data.get("contains_dsa_content", False)),
+                "identified_concepts": list(parsed_data.get("identified_concepts", [])),
+                "confidence_score": float(parsed_data.get("confidence_score", 0.0))
+            }
+            
+            # Create ImageAnalysisResult from validated data
+            result = ImageAnalysisResult(**validated_data)
             
             if not result.contains_dsa_content:
                 return {
@@ -158,8 +182,10 @@ def validate_image_content(state: AgentState) -> Dict[str, Any]:
                 "identified_concepts": result.identified_concepts
             }
             
-        except json.JSONDecodeError:
-            print("Error parsing validation response")
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error parsing validation response: {str(e)}")
+            print(f"Raw content: {content}")
+            # If we can't parse the response, default to generating a response
             return {
                 "messages": messages,
                 "user_level": user_level,

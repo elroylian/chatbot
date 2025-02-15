@@ -52,7 +52,7 @@ authenticator = stauth.Authenticate(
 
 #####################################
 
-langgraph_config = {"configurable": {"thread_id": "abc123"}}
+langgraph_config = {"configurable": {"thread_id": "2200499"}}
 
 print("Initialising the app...\n")
 ##########################################
@@ -191,11 +191,12 @@ else:
             clear_session()
             st.stop()
 
-        contextual_query_chain = get_context_query_chain(llm)
-        image_chain = get_image_chain(llm)    
-        rag_chain = get_qa_chain(llm, contextual_query_chain, retriever)
-        initial_chain = get_initial_chain()
-        retrieval_check_chain = get_rc_chain(llm)
+        # OLD CHAINS
+        # contextual_query_chain = get_context_query_chain(llm)
+        # image_chain = get_image_chain(llm)    
+        # rag_chain = get_qa_chain(llm, contextual_query_chain, retriever)
+        # initial_chain = get_initial_chain()
+        # retrieval_check_chain = get_rc_chain(llm)
         
         # print("llm_chat_history: ", llm_chat_history) # for testing
 
@@ -228,40 +229,57 @@ else:
                 st.session_state["uploader_key"] += 1
             
             uploaded_files = st.sidebar.file_uploader("Upload Files (Not Done)", 
-                                                      type=["txt", "pdf", "docx", "png", "jpg", "jpeg"], 
+                                                      type=["png", "jpg", "jpeg"], 
                                                       accept_multiple_files=True, 
                                                       key= st.session_state["uploader_key"]
                                                       )
             
-            # To be passed as input to the LLM
-            uploaded_images = []
+            from utils.document_processing import process_pdf
             
-            # To be displayed in the chat message container
-            test_images = []
+            # To be passed as input to the LLM
+            processed_images = []  # For base64 encoded images
+            processed_text = []    # For text content from documents
             
             if uploaded_files:
                 for uploaded_file in uploaded_files:
                     if uploaded_file.size > 5 * 1024 * 1024:  # 5MB limit
                         st.sidebar.error("File too large. Please upload a file smaller than 5MB")
-                    else:
-                        # Handle different file types
-                        if uploaded_file.type.startswith('image'):
-                            try:
-                                base64_image, processed_image = process_image(uploaded_file)
-                                st.sidebar.image(processed_image, caption="Processed Image")
-                                uploaded_images.append(base64_image)
-                                test_images.append(processed_image)
-                                
-                            except Exception as e:
-                                st.sidebar.error(f"Error processing image: {str(e)}")
-                                
-                        elif uploaded_file.type == "text/plain":
-                            file_content = uploaded_file.read().decode("utf-8")
-                            st.sidebar.write("File Content:", file_content)
+                        continue
+                    
+                    # try:
+                    #     # Process the file
+                    #     result = process_uploaded_file(uploaded_file)
                         
-            if uploaded_images and st.sidebar.button("Clear Images"):
-                uploaded_images = []
-                st.sidebar.success("Images cleared")
+                    #     # Store processed content based on type
+                    #     if result['type'] == 'image':
+                    #         processed_images.append(result['content'])
+                    #     else:
+                    #         processed_text.append(result['content'])
+                            
+                    # except Exception as e:
+                    #     st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
+                        
+                    else:
+                        try:
+                            # Handle different file types
+                            if uploaded_file.type.startswith('image'):
+                                try:
+                                    base64_image, processed_image = process_image(uploaded_file)
+                                    st.sidebar.image(processed_image, caption="Processed Image")
+                                    processed_images.append(base64_image)
+                                    
+                                except Exception as e:
+                                    st.sidebar.error(f"Error processing image: {str(e)}")
+                        except Exception as e:
+                            st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
+                                
+                        # else:
+                        #     file_content = process_pdf(uploaded_file)
+                        #     st.sidebar.write(file_content)
+                        
+            # if uploaded_images and st.sidebar.button("Clear Images"):
+            #     uploaded_images = []
+            #     st.sidebar.success("Images cleared")
             
             
 
@@ -361,15 +379,15 @@ else:
                 
                     with st.spinner("Thinking..."):
                     
-                        # Check if the user input contains an image
-                        if uploaded_images:
-                            print("PROCESSING IMAGE QUERY\n\n")
+                        # Check if the user input contains any document
+                        if processed_images:
+                            print("PROCESSING DOCUMENT QUERY\n\n")
     
                             # Format content with image
                             content = [{"type": "text", "text": prompt}]
                             
                             # Add each image to the content
-                            for img in uploaded_images:
+                            for img in processed_images:
                                 content.append({
                                     "type": "image_url",
                                     "image_url": {
@@ -391,10 +409,6 @@ else:
                             stream_message = re.findall(r'\S+|\s+', final_message)
                             full_response = st.write_stream(stream_message)
                             
-                            
-                            # st.write(test_images[0])
-                            # st.image(test_images,width=250)
-                            
                             # Save to database and update histories
                             db.save_message(user_id, chat_id, "assistant", full_response)
                             llm_chat_history.extend([
@@ -409,7 +423,7 @@ else:
                             st.rerun()
                   
                         else:
-                            print("PROCESSING NON-IMAGE QUERY\n")
+                            print("PROCESSING NON-DOCUMENT QUERY\n")
                             
                             # Process the user input
                             from test_templates.retrieval_tool import graph

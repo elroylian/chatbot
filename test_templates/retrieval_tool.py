@@ -16,7 +16,6 @@ from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
 
 # TODO
-# LLM still unsure how to respond to Thank you, Goodbye, etc. Hi, still okay i guess
 # Keep testing!
 # Change clarification method
 
@@ -38,86 +37,102 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     user_level: str
 
-def validate_dsa_question(state) -> dict[str, Any]:
+def classify_user_input(state) -> dict[str, Any]:
     """Validates input to handle DSA questions, ensuring English-only interaction."""
     messages = state["messages"]
     question = messages[-1].content
     user_level = state["user_level"]
     
+    
     class ValidationResult(BaseModel):
         message_type: str = Field(description="Type of message: 'dsa', 'pleasantry', 'non_english', or 'other'")
         response: str = Field(description="Response for non-DSA inputs")
 
-    context_messages = messages[-6:-1] if len(messages) > 6 else messages[:-1]
-    conversation_context = "\n".join([f"{'User: ' if isinstance(m, HumanMessage) else 'Assistant: '}{m.content}" for m in context_messages])
-    
-    prompt = PromptTemplate(
-        template="""Analyze the input as a friendly DSA tutor:
+    # First, check if current message is non-English
+    language_prompt = PromptTemplate(
+        template="""Analyze ONLY the current input for language:
 
-    Previous conversation:
-    {context}
+Current input: {question}
 
-    Current input: {question}
-
-    Classify the input into:
-
-    1. 'dsa' - Questions directly about:
-    - Data Structures (arrays, linked lists, trees, graphs, etc.)
-    - Algorithms (sorting, searching, traversal, etc.)
-    - Algorithm analysis (complexity, Big O notation)
-    - DSA implementation
-    - DSA problem-solving
-    - Must be in English
-
-    2. 'pleasantry' - Friendly conversation:
-    - Greetings (hi, hello, hey)
-    - Thanks/gratitude
-    - Goodbyes
-    - Emotional responses ("that makes sense", "I'm confused")
-    - Small encouragements ("got it", "okay I understand")
-    
-    3. 'non_english' - Any non-English input:
-    - Questions in other languages
-    - Mixed language content
-    - Non-English characters/scripts
-    
-    4. 'other' - Non-DSA technical content:
-    - General programming
-    - Math questions
-    - Other CS topics
-    - Non-technical questions
-
-    For pleasantries: Respond naturally like a friendly tutor
-    For non_english: Respond with English-only policy reminder
-    For other: Redirect to DSA while being encouraging
-
-    Return:
-    1. message_type: 'dsa', 'pleasantry', 'non_english', or 'other'
-    2. response: Appropriate response for non-DSA inputs""",
-        input_variables=["context", "question"]
+Determine if this input contains ANY non-English text or characters.
+Return:
+1. message_type: 'non_english' if ANY non-English content is present, 'english' if input is entirely in English
+2. response: "I can only communicate in English. Please rephrase your question in English." for non-English content""",
+        input_variables=["question"]
     )
     
     try:
         model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.5, streaming=True, api_key=st.secrets["OpenAI_key"])
-        chain = prompt | model.with_structured_output(ValidationResult)
-        result = chain.invoke({"context": conversation_context, "question": question})
+        language_chain = language_prompt | model.with_structured_output(ValidationResult)
+        language_result = language_chain.invoke({"question": question})
         
-        if result.message_type == "dsa":
-            return {"messages": messages, "user_level": user_level, "next": "proceed"}
-        elif result.message_type == "non_english":
+        # If non-English is detected, return immediately
+        if language_result.message_type == "non_english":
             return {
                 "messages": [*messages, AIMessage(content="I can only communicate in English. Please rephrase your question in English.")],
                 "user_level": user_level,
                 "next": "redirect"
             }
+            
+        # If message is in English, proceed with full classification
+        context_messages = messages[-6:-1] if len(messages) > 6 else messages[:-1]
+        conversation_context = "\n".join([f"{'User: ' if isinstance(m, HumanMessage) else 'Assistant: '}{m.content}" 
+                                        for m in context_messages])
+        
+        classification_prompt = PromptTemplate(
+            template="""Analyze the English input as a friendly DSA tutor:
+
+Previous conversation:
+{context}
+
+Current input: {question}
+
+Classify the input into:
+
+1. 'dsa' - Questions directly about:
+- Data Structures (arrays, linked lists, trees, graphs, etc.)
+- Algorithms (sorting, searching, traversal, etc.)
+- Algorithm analysis (complexity, Big O notation)
+- DSA implementation
+- DSA problem-solving
+
+2. 'pleasantry' - Friendly conversation:
+- Greetings (hi, hello, hey)
+- Thanks/gratitude
+- Goodbyes
+- Emotional responses ("that makes sense", "I'm confused")
+- Small encouragements ("got it", "okay I understand")
+
+3. 'other' - Non-DSA technical content:
+- General programming
+- Math questions
+- Other CS topics
+- Non-technical questions
+
+For pleasantries: Respond naturally like a friendly tutor
+For other: Redirect to DSA while being encouraging
+
+Return:
+1. message_type: 'dsa', 'pleasantry', or 'other'
+2. response: Appropriate response for non-DSA inputs""",
+            input_variables=["context", "question"]
+        )
+        
+        chain = classification_prompt | model.with_structured_output(ValidationResult)
+        result = chain.invoke({"context": conversation_context, "question": question})
+        
+        if result.message_type == "dsa":
+            return {"messages": messages, "user_level": user_level, "next": "proceed"}
         else:
-            return {"messages": [*messages, AIMessage(content=result.response)], "user_level": user_level, "next": "redirect"}
+            return {"messages": [*messages, AIMessage(content=result.response)], 
+                    "user_level": user_level, 
+                    "next": "redirect"}
             
     except Exception as e:
         print(f"Validation error: {str(e)}")
         return {"messages": messages, "user_level": user_level, "next": "proceed"}
 
-def clarify_question(state):
+def expand_ambiguous_question(state):
     """
     Clarifies ambiguous questions by maintaining conversation context,
     with improved handling of pronoun references to DSA concepts.
@@ -211,206 +226,9 @@ Return ONLY the reformulated question without explanation.
         print(f"Error in clarification: {str(e)}")
         # On error, proceed with original question
         return {"messages": messages, "user_level": state["user_level"]}
-
-
-# def agent(state):
-#     """
-#     Enhanced agent function with correct retrieval method
-#     """
-#     print("\n=== DEBUG: AGENT NODE ===")
-#     messages = state["messages"]
-#     question = messages[-1].content
-#     print(f"Question received by agent: {question}")
     
-#     try:
-#         # Create system message to enforce proper tool usage and response format
-#         system_message = """You are a DSA expert assistant. Follow these steps for EVERY question:
-#         1. ALWAYS use the retrieve_documents tool first to get information
-#         2. Wait for the tool's response
-#         3. Synthesize the retrieved information into a clear explanation
-#         4. If the retrieved information is insufficient, clearly state that and provide a general explanation
-        
-#         IMPORTANT: 
-#         - Always complete the full retrieval and response process
-#         - Never return just a message about needing to retrieve information
-#         - Provide complete, informative responses
-#         """
-        
-#         # Prepare messages with system instruction
-#         full_messages = [
-#             HumanMessage(content=system_message),
-#             *messages
-#         ]
-        
-#         # Initialize model with tools and strict temperature
-#         model = ChatOpenAI(
-#             model_name="gpt-4o-mini", 
-#             temperature=0, 
-#             streaming=True, 
-#             api_key=st.secrets["OpenAI_key"]
-#         )
-#         model_with_tools = model.bind_tools(tools)
-        
-#         # Create a specific prompt to force tool usage
-#         tool_prompt = HumanMessage(content=f"""Please provide information about: {question}
-#         Remember to:
-#         1. Use the retrieve_documents tool first
-#         2. Process the retrieved information
-#         3. Provide a complete response""")
-        
-#         # Get response with explicit tool usage
-#         response = model_with_tools.invoke([*full_messages, tool_prompt])
-        
-#         # Validate response
-#         if not response.content.strip() or "need to retrieve" in response.content.lower():
-#             print("Warning: Invalid response detected, forcing retrieval")
-#             # Force direct retrieval as fallback
-#             docs = retriever.invoke(question)
-#             if docs:
-#                 # Process the retrieved documents
-#                 context = "\n".join(doc.page_content for doc in docs)
-                
-#                 # Generate response with retrieved context
-#                 prompt = PromptTemplate(
-#                     template="""Based on the following information, provide a complete explanation about {question}.
-                    
-#                     Retrieved information:
-#                     {context}
-                    
-#                     If the retrieved information is insufficient, provide a general explanation based on your knowledge
-#                     but clearly state that you're doing so.
-#                     """,
-#                     input_variables=["question", "context"]
-#                 )
-                
-#                 chain = prompt | model | StrOutputParser()
-#                 response_content = chain.invoke({
-#                     "question": question,
-#                     "context": context
-#                 })
-#             else:
-#                 response_content = "I apologize, but I couldn't find specific information about that. Let me provide a general explanation based on my knowledge."
-#         else:
-#             response_content = response.content
-            
-#         print(f"Final response length: {len(response_content)}")
-#         return {"messages": [AIMessage(content=response_content)], "user_level": state["user_level"]}
-        
-#     except Exception as e:
-#         print(f"Error in agent: {str(e)}")
-#         # Fallback to direct explanation
-#         try:
-#             print("Attempting fallback retrieval...")
-#             docs = retriever.invoke(question)
-#             if docs:
-#                 context = "\n".join(doc.page_content for doc in docs)
-#                 return {
-#                     "messages": [AIMessage(content=f"Here's what I found about {question}: {context}")],
-#                     "user_level": state["user_level"]
-#                 }
-#             else:
-#                 return {
-#                     "messages": [AIMessage(content=f"I apologize, but I encountered an issue retrieving specific information about {question}. Please try rephrasing your question.")],
-#                     "user_level": state["user_level"]
-#                 }
-#         except Exception as e2:
-#             print(f"Fallback retrieval failed: {str(e2)}")
-#             return {
-#                 "messages": [AIMessage(content="I encountered an error processing your question. Please try asking in a different way.")],
-#                 "user_level": state["user_level"]
-#             }
 
-# def rewrite(state):
-#     """Debug version of rewrite with validation"""
-#     print("\n=== DEBUG: REWRITE NODE ===")
-#     messages = state["messages"]
-#     question = messages[-1].content
-#     print(f"Rewriting question: {question}")
-
-#     try:
-#         msg = [
-#             HumanMessage(
-#                 content="""Improve this question to be more specific and searchable:
-#                 Question: {question}
-#                 Make it clearly about DSA concepts.""".format(question=question)
-#             )
-#         ]
-
-#         model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0, streaming=True, api_key=st.secrets["OpenAI_key"])
-#         response = model.invoke(msg)
-#         print(f"Rewritten as: {response.content}")
-#         return {"messages": [AIMessage(content=response.content)], "user_level": state["user_level"]}
-#     except Exception as e:
-#         print(f"Error in rewrite: {str(e)}")
-#         return {"messages": [HumanMessage(content=question)], "user_level": state["user_level"]}
-
-# def grade_documents(state) -> Literal["generate", "rewrite"]:
-#     """Debug version of grading with content validation"""
-#     print("\n=== DEBUG: GRADE DOCUMENTS ===")
-    
-#     messages = state["messages"]
-#     last_message = messages[-1]
-#     question = messages[0].content
-#     docs = last_message.content
-    
-#     print(f"Grading question: {question}")
-#     print(f"Documents content length: {len(docs) if docs else 'None'}")
-    
-#     # Basic content validation
-#     if not docs or len(docs.strip()) < 10:
-#         print("---NO VALID DOCS TO GRADE---")
-#         return "rewrite"
-        
-#     try:
-#         class grade(BaseModel):
-#             binary_score: str = Field(description="Relevance score 'yes' or 'no'")
-            
-#         model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0, streaming=True, api_key=st.secrets["OpenAI_key"])
-#         llm_with_tool = model.with_structured_output(grade)
-        
-#         prompt = PromptTemplate(
-#             template="""Grade if this content is relevant to the question.
-#             Question: {question}
-#             Content: {context}
-#             Give 'yes' if there's ANY relevant information about the topic.""",
-#             input_variables=["context", "question"],
-#         )
-        
-#         chain = prompt | llm_with_tool
-#         result = chain.invoke({"question": question, "context": docs})
-#         print(f"Grade result: {result.binary_score}")
-        
-#         return "generate" if result.binary_score.lower() == "yes" else "rewrite"
-        
-#     except Exception as e:
-#         print(f"Error in grading: {str(e)}")
-#         return "generate" if docs else "rewrite"
-
-
-################################################################################################################
-# def agent(state):
-#     """
-#     Invokes the agent model to generate a response based on the current state. Given
-#     the question, it will decide to retrieve using the retriever tool, or simply end.
-
-#     Args:
-#         state (messages): The current state
-
-#     Returns:
-#         dict: The updated state with the agent response appended to messages
-#     """
-#     print("---CALL AGENT---")
-    
-#     # Prompt
-#     prompt = ChatMessagePromptTemplate
-    
-#     messages = state["messages"]
-#     model = ChatOpenAI(temperature=0, model="gpt-4o-mini", streaming=True,api_key=st.secrets["OpenAI_key"])
-#     model = model.bind_tools(tools)
-#     response = model.invoke(messages)
-#     # We return a list, because this will get added to the existing list
-#     return {"messages": [response]}
-def agent(state):
+def evaluate_and_retrieve(state):
     """
     Invokes the agent model to generate a response based on confidence level.
     
@@ -426,20 +244,23 @@ def agent(state):
     # System message that enforces confidence-based retrieval
     system_message = """You are a DSA expert assistant. For every question:
 
-1. First, assess your confidence in providing a complete, accurate answer:
-   - Consider if you need specific implementation details
-   - Consider if you need exact complexity analysis
-   - Consider if you need specific examples or edge cases
+1. First, assess if you need additional reference information:
+   - Do you need specific implementation details?
+   - Do you need exact complexity analysis?
+   - Do you need specific examples or edge cases?
 
-2. If your confidence is less than 90%%:
-   - ALWAYS use the retrieve_documents tool
-   - Base your answer on the retrieved information
+2. Based on the assessment:
+   - Use the retrieve_documents tool if you need specific details
+   - Base your answer on the retrieved information when used
+   - Provide direct answers when appropriate
 
-3. If your confidence is 90%% or higher:
-   - You may answer directly from your knowledge
-   - Still use the tool if additional detail would be helpful
+3. Response guidelines:
+   - Be clear and concise
+   - Focus on accuracy and completeness
+   - Provide examples when helpful
+   - Use appropriate technical depth for the user's level
 
-Remember: It's better to verify with the tool than risk providing incomplete or inaccurate information."""
+Remember: Always prioritize providing accurate and helpful information."""
 
     # Prepare messages with system instruction
     full_messages = [
@@ -456,7 +277,7 @@ Remember: It's better to verify with the tool than risk providing incomplete or 
     
     return {"messages": [response]}
 
-def grade_documents(state) -> Literal["generate", "rewrite"]:
+def assess_document_relevance(state) -> Literal["generate", "rewrite"]:
     """
     Enhanced grading system for retrieved DSA documents.
     
@@ -557,7 +378,7 @@ Also explain your reasoning.""",
         # On error, default to rewrite for safety
         return "rewrite"
     
-def rewrite(state):
+def optimize_query(state):
     """
     Transform the query to produce a better question.
 
@@ -589,126 +410,160 @@ def rewrite(state):
     response = model.invoke(msg)
     return {"messages": [response]}
 
-def generate(state):
-    """Generate response based on retrieved content and question"""
-    print("\n=== DEBUG: GENERATE NODE ===")
+def synthesize_response(state):
+    """Generate response based on retrieved content and question with strong user level differentiation"""
+    print("\n=== GENERATE RESPONSE ===")
     messages = state["messages"]
-    print("Messages: ", state["messages"])
+    user_level = state["user_level"]
     
-    # Find the last actual question by looking for the last HumanMessage
-    # that triggered the retrieval flow
+    # Get last question
     question = None
-    
     for msg in messages:
         if isinstance(msg, HumanMessage):
             question = msg.content
             
     if not question:
         return {
-            "messages": [AIMessage(content="I couldn't properly process your question. Could you please rephrase it?")],
-            "user_level": state["user_level"]
+            "messages": [AIMessage(content="Please rephrase your question.")],
+            "user_level": user_level
         }
-        
-    user_level = state["user_level"]
-    docs = messages[-1].content  # Retrieved content is always last
-    
-    print(f"Generate received question: {question}")
-    print(f"User level: {user_level}")
-    # print(f"Docs length: {len(docs) if docs else 'None'}")
+
+    docs = messages[-1].content
     
     if not docs or len(docs.strip()) < 10:
-        print("---NO CONTENT TO GENERATE FROM---")
-        return {"messages": [AIMessage(content="I apologize, but I couldn't find relevant information to answer your question. Please try rephrasing it.")], "user_level": state["user_level"]}
+        return {
+            "messages": [AIMessage(content="Please rephrase your question for more relevant results.")], 
+            "user_level": user_level
+        }
         
     try:
         llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0, streaming=True, api_key=st.secrets["OpenAI_key"])
         
-        # prompt = PromptTemplate(
-        #     template="""Answer based on the following context. If context is insufficient, say so clearly.
-        #     Question: {question}
-        #     User Level: {user_level}
-        #     Context: {context}
+        # Level-specific content requirements
+        level_requirements = {
+            "beginner": """
+                REQUIRED CONTENT STRUCTURE FOR BEGINNER LEVEL:
+                1. Simple definition using everyday analogies
+                2. Basic step-by-step explanation with a small example (max 5 elements)
+                3. Very basic time complexity (just "fast" or "slow" for different scenarios)
+                4. ONE simple real-world application
+                5. No implementation details unless specifically asked
+                6. Avoid technical jargon - use simple terms
+                
+                TONE AND STYLE:
+                - Use simple, clear language
+                - Break complex ideas into small steps
+                - Focus on building intuition
+                - Limit mathematical notation
+                Maximum response length: 250 words
+            """,
             
-        #     If you don't find specific information about the topic, you can provide a general explanation based on your knowledge, but clearly state that you're doing so.""",
-        #     input_variables=["context", "question", "user_level"],
-        # )
+            "intermediate": """
+                REQUIRED CONTENT STRUCTURE FOR INTERMEDIATE LEVEL:
+                1. Technical definition with implementation overview
+                2. Detailed step-by-step explanation with medium example (5-10 elements)
+                3. Time/space complexity with basic explanation
+                4. Common use cases and trade-offs
+                5. Basic pseudocode if relevant
+                6. Technical terms with brief explanations
+                
+                TONE AND STYLE:
+                - Balance technical and plain language
+                - Include some implementation details
+                - Explain why certain choices are made
+                - Use some mathematical notation
+                Maximum response length: 400 words
+            """,
+            
+            "advanced": """
+                REQUIRED CONTENT STRUCTURE FOR ADVANCED LEVEL:
+                1. Precise technical definition with implementation considerations
+                2. In-depth analysis with complex examples
+                3. Detailed time/space complexity analysis with proofs if relevant
+                4. Edge cases and optimization techniques
+                5. Implementation variations and trade-offs
+                6. Advanced applications and modifications
+                
+                TONE AND STYLE:
+                - Use technical terminology freely
+                - Focus on optimization and efficiency
+                - Include mathematical proofs when relevant
+                - Discuss system-level considerations
+                Maximum response length: 600 words
+            """
+        }
+
+        print("\nDebug user level: ", user_level.lower())
+        
+        # Get appropriate requirements for user level
+        level_specific_requirements = level_requirements.get(
+            user_level.lower(), 
+            level_requirements["intermediate"]  # Default to intermediate if level unknown
+        )
+        
         prompt = PromptTemplate(
-            input_variables=['context', 'question','user_level'], 
-            input_types={}, 
-            partial_variables={}, 
+            input_variables=['context', 'question', 'level_requirements'], 
             template="""
-                You are a DSA expert tutor. Adapt your teaching style to the user's level while maintaining technical accuracy.
+                Generate a DSA explanation following these exact requirements:
 
-                Current User Level: {user_level}
+                {level_requirements}
 
-                [TEACHING APPROACHES]
-                BEGINNER: Simple analogies, basic understanding, minimal jargon
-                INTERMEDIATE: Basic complexity, implementation details, code examples
-                ADVANCED: Deep optimization, system considerations, complex trade-offs
-
-                • UNIVERSAL RULES:
-                • Stay within DSA scope
-                    • Focus on one concept at a time
-                    • Offer to explore related topics after
-                • Use context appropriately
-                    • Start with provided context: "{context}"
-                    • Clearly indicate when using general knowledge
-                    • Stay within user's competency level
-                • Maintain level-appropriate depth
-                    • Match technical depth to user level
-                    • Scale example complexity appropriately
-                    • Use suitable terminology
-
+                Use this reference material: "{context}"
+                
                 Question: {question}
-                """)
-        # prompt = hub.pull("rlm/rag-prompt")
+                
+                Generate response following the exact structure and constraints above.
+                """
+        )
         
         chain = prompt | llm | StrOutputParser()
         response = chain.invoke({
             "context": docs,
             "question": question,
-            "user_level": user_level
+            "level_requirements": level_specific_requirements
         })
         
-        print(f"Generated response length: {len(response)}")
-        return {"messages": [AIMessage(content=response)], "user_level": state["user_level"]}
+        return {"messages": [AIMessage(content=response)], "user_level": user_level}
         
     except Exception as e:
-        print(f"Error in generate: {str(e)}")
-        return {"messages": [AIMessage(content="I encountered an error generating a response. Please try asking your question again.")], "user_level": state["user_level"]}
+        print(f"Error: {str(e)}")
+        return {
+            "messages": [AIMessage(content="Please try rephrasing your question.")], 
+            "user_level": user_level
+        }
 
 ################################################################################################################
 # Graph setup
 workflow = StateGraph(AgentState)
 
 # Add nodes
-workflow.add_node("validate_topic", validate_dsa_question)
-workflow.add_node("clarify", clarify_question)
-workflow.add_node("agent", agent)
+workflow.add_node("classify_user_input", classify_user_input)
+workflow.add_node("expand_ambiguous_question", expand_ambiguous_question)
+workflow.add_node("evaluate_and_retrieve", evaluate_and_retrieve)
 retrieve = ToolNode([retriever_tool])
 workflow.add_node("retrieve", retrieve)
-workflow.add_node("generate", generate)
-workflow.add_node("rewrite", rewrite)
+workflow.add_node("synthesize_response", synthesize_response)
+workflow.add_node("optimize_query", optimize_query)
 
 # Add edges
-workflow.add_edge(START, "validate_topic")
+workflow.add_edge(START, "classify_user_input")
 
 # Modify validation to return three possible outcomes
 workflow.add_conditional_edges(
-    "validate_topic",
+    "classify_user_input",
     lambda x: x["next"],
     {
-        "proceed": "agent",
-        "clarify": "clarify",
+        "proceed": "evaluate_and_retrieve",
+        "clarify": "expand_ambiguous_question",
         "redirect": END
     }
 )
 
 # After clarification, go to agent
-workflow.add_edge("clarify", "agent")
+workflow.add_edge("expand_ambiguous_question", "evaluate_and_retrieve")
 
 workflow.add_conditional_edges(
-    "agent",
+    "evaluate_and_retrieve",
     tools_condition,
     {
         "tools": "retrieve",
@@ -718,15 +573,15 @@ workflow.add_conditional_edges(
 
 workflow.add_conditional_edges(
     "retrieve",
-    grade_documents,
+    assess_document_relevance,
     {
-        "generate": "generate",
-        "rewrite": "rewrite",
+        "generate": "synthesize_response",
+        "rewrite": "optimize_query",
     }
 )
 
-workflow.add_edge("generate", END)
-workflow.add_edge("rewrite", "agent")
+workflow.add_edge("synthesize_response", END)
+workflow.add_edge("optimize_query", "evaluate_and_retrieve")
 
 # Compile graph
 from test_templates.memory import memory
