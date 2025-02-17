@@ -33,3 +33,4 @@ credentials:
       password_hint: Abcde123!
       roles:
       - user
+      - tester
