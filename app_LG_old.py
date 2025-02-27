@@ -1,16 +1,24 @@
 import yaml
 import streamlit as st
+from langchain_core.output_parsers import StrOutputParser
 from yaml.loader import SafeLoader
 from model import llm_selected
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from utils.chunk_doc import get_retriever
 from utils.document_processing import process_image, process_pdf
+from operator import itemgetter
 import json
 import re
 import os
 
 import streamlit_authenticator as stauth
-from streamlit_authenticator.utilities import (LoginError, RegisterError,)
+from streamlit_authenticator.utilities import (CredentialsError,
+                                               ForgotError,
+                                               Hasher,
+                                               LoginError,
+                                               RegisterError,
+                                               ResetError,
+                                               UpdateError)
 from utils.db_connection import ChatDatabase
 from langchain_core.messages import HumanMessage
 from utils.level_manager import should_analyze_user_level, get_next_level, get_previous_level
@@ -41,14 +49,17 @@ authenticator = stauth.Authenticate(
 #####################################
 from test_templates.memory import memory
 from test_templates.intial_template import workflow
-from test_templates.document_text_template import document_text_workflow
+from test_templates.document_text_template import image_text_workflow
 from test_templates.text_template import text_workflow
 from utils.analyser import analyser_workflow
 
 langgraph_config = {"configurable": {"thread_id": "1"}}
 
+# conn = sqlite3.connect("checkpoints.sqlite")
+
+
 initial_graph = workflow.compile(checkpointer=memory)
-document_text_graph = document_text_workflow.compile(memory)
+image_text_graph = image_text_workflow.compile(memory)
 text_graph = text_workflow.compile(memory)
 analyser_graph = analyser_workflow.compile()
 
@@ -71,12 +82,13 @@ def clear_session():
     for var in session_vars:
         if var in st.session_state:
             del st.session_state[var]
-
-st.title("💬DSA Chatbot")        
+        
 
 if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
     
     clear_session()
+    
+    st.title("💬DSA Chatbot")
     
     # Create tabs for login and registration
     tab1, tab2 = st.tabs(["Login", "Register"])
@@ -116,21 +128,25 @@ if st.session_state["authentication_status"] is None or st.session_state["authen
         except RegisterError as e:
             st.error(e)
 else:
+    # try:
     if st.session_state["authentication_status"]:
+        
+        # Initialize LLM chat history (for context handling)
+        if "llm_chat_history" not in st.session_state:
+            st.session_state["llm_chat_history"] = []
+
+        llm_chat_history = st.session_state["llm_chat_history"]
 
         st.sidebar.write("Welcome, ",st.session_state['name'])
         authenticator.logout('Logout','sidebar')
         st.sidebar.write("Version:", CHATBOT_VERSION)
         
-        # Initialize session variables
-        if "messages" not in st.session_state:
-            st.session_state["messages"] = []
-        
-        # Load user info from the database
         if user_info := db.get_user_by_email(st.session_state['email']):
             
-            # ChatID & User Info
+            # ChatID
             chat_id = user_info['user_id']+"_1"
+            
+            # User Info
             user_id = user_info['user_id']
             user_email = user_info['email']
             
@@ -141,22 +157,27 @@ else:
             
             # If chat history exists, load it into the messages list
             if chat_history:
-                print("Loading Chat History...\n")
-                if st.session_state["messages"] == []:
-                    print("Appending Chat History...\n")
+                st.session_state.messages = chat_history
+                
+                # Only load into llm_chat_history if it's empty
+                if not st.session_state["llm_chat_history"]:
+                    print("not IN LLM HISTORY")
                     for message in chat_history:
                         if message["role"] == "user":
-                            st.session_state["messages"].append(HumanMessage(content=message["content"]))
+                            st.session_state["llm_chat_history"].append(HumanMessage(content=message["content"]))
                         else:
-                            st.session_state["messages"].append(AIMessage(content=message["content"]))
-                    
-                    initial_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
-            
-            llm_chat_history = st.session_state["messages"]
+                            st.session_state["llm_chat_history"].append(AIMessage(content=message["content"]))
+                
+                    initial_graph.update_state(values = {"messages": llm_chat_history}, config = langgraph_config)
+            else:
+                # Initialize empty messages list
+                st.session_state.messages = []
             
             # Initialize user level
             st.session_state["user_level"] = db.get_user_level(user_id)
             user_level = st.session_state["user_level"]
+            
+   
         else:
             st.error("User not found in the database.")
             st.stop()
@@ -167,13 +188,15 @@ else:
             st.error(f"An error occurred: {e}")
             clear_session()
             st.stop()
+
+        # print("llm_chat_history: ", llm_chat_history) # for testing
+
+        st.title("💬DSA Chatbot")
         
         # Add sidebar options
         st.sidebar.title("Options")
-        
-        # Clear chat history
         if st.sidebar.button("Clear Chat History"):
-            # st.session_state["llm_chat_history"] = []
+            st.session_state["llm_chat_history"] = []
             st.session_state["messages"] = []
             
             updated_messages = []
@@ -247,14 +270,14 @@ else:
         # Display chat messages from history on app rerun
         if "messages" in st.session_state:
             for message in st.session_state.messages:
-                with st.chat_message("user" if isinstance(message, HumanMessage) else "assistant"):
-                    st.markdown(message.content)
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
 
         # Accept user input
         if prompt := st.chat_input("What is an Array?"):
             
             # Add user message to chat history
-            st.session_state.messages.append(HumanMessage(content=prompt))
+            st.session_state.messages.append({"role": "user", "content": prompt})
             db.save_message(user_id, chat_id, "user", prompt)
             
             # Display user message in chat message container
@@ -279,6 +302,7 @@ else:
                         
                     output = initial_graph.invoke(input_dict, langgraph_config)
                     
+                    # print("this is the output:\n",output)
                     response = output["messages"][-1].content
                     print("this is the response:\n",response)
                     
@@ -298,11 +322,17 @@ else:
                             # Append and save assistant's message
                             db.save_message(user_id, chat_id, "assistant", message)
 
+                            llm_chat_history.extend(
+                                [
+                                    HumanMessage(content=prompt),
+                                    AIMessage(content=message),
+                                ]
+                            )
                             stream_message = re.findall(r'\S+|\s+', message)
                             full_response = st.write_stream(stream_message)
                             
                             # Display the full response in the chat message container
-                            st.session_state.messages.append(AIMessage(content=full_response))
+                            st.session_state.messages.append({"role": "assistant", "content": full_response})
                             
                             # Validate that necessary information is available
                             if user_level:
@@ -310,10 +340,12 @@ else:
                                 st.session_state["user_level"] = user_level
                                 
                                 # Keep only the last assessment message
-                                st.session_state["messages"] = [AIMessage(content=full_response)]
+                                last_message = {"role": "assistant", "content": full_response}
+                                st.session_state["llm_chat_history"] = [AIMessage(content=full_response)]
+                                st.session_state["messages"] = [last_message]
                                 
                                 # Clear assessment chat
-                                initial_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                                initial_graph.update_state(values = {"messages": st.session_state["llm_chat_history"]}, config = langgraph_config)
                                 db.clear_chat_history(user_id, chat_id)
                                 db.save_message(user_id, chat_id, "assistant", full_response)
                                 
@@ -327,14 +359,21 @@ else:
                     else:
                         print("Oops! I broke. Sorry about that! JSON FAILED")
                         st.write(response)
-                        # st.session_state.messages.append({"role": "assistant", "content": response})
-                        st.session_state.messages.append(AIMessage(content=response))
+                        st.session_state.messages.append({"role": "assistant", "content": response})
                         # Append and save assistant's message
                         db.save_message(user_id, chat_id, "assistant", response)
-
+                        llm_chat_history.extend(
+                            [
+                                HumanMessage(content="Remember, you MUST generate a syntactically correct JSON object."),
+                                AIMessage(content=response),
+                            ]
+                        )
                 else:
                 
-                    with st.spinner("Thinking..."):                        
+                    with st.spinner("Thinking..."):
+                        if llm_chat_history:
+                            print("HISTORY: ", llm_chat_history[-1].content)
+                        
                         # Check if the user input contains any document (images or text from PDFs)
                         if processed_images or processed_text:
                             print("PROCESSING DOCUMENT QUERY\n\n")
@@ -372,7 +411,7 @@ else:
                             }
                             
                             # Run the workflow
-                            response = document_text_graph.invoke(state, langgraph_config)
+                            response = image_text_graph.invoke(state, langgraph_config)
                             
                             # Get the final message and handle response
                             final_message = response["messages"][-1].content
@@ -381,12 +420,11 @@ else:
                             
                             # Save to database and update histories
                             db.save_message(user_id, chat_id, "assistant", full_response)
-                            # llm_chat_history.extend([
-                            #     HumanMessage(content=prompt),
-                            #     AIMessage(content=full_response),
-                            # ])
-                            # st.session_state.messages.append({"role": "assistant", "content": full_response})
-                            st.session_state.messages.append(AIMessage(content=full_response))
+                            llm_chat_history.extend([
+                                HumanMessage(content=prompt),
+                                AIMessage(content=full_response),
+                            ])
+                            st.session_state.messages.append({"role": "assistant", "content": full_response})
 
                             # Clear the uploaded files after processing
                             update_key()
@@ -405,58 +443,62 @@ else:
                             }
                             output = text_graph.invoke(inputs, langgraph_config)
                             response = output["messages"][-1].content
-                            
-                            st.session_state.messages.append(AIMessage(content=response))
-                            
                             stream_message = re.findall(r'\S+|\s+', response)
                             full_response = st.write_stream(stream_message)
+                            
+                            # Save to database and update histories
                             db.save_message(user_id, chat_id, "assistant", response)
-        
+                            llm_chat_history.extend([
+                                HumanMessage(content=prompt),
+                                AIMessage(content=response),
+                            ])
+                            st.session_state.messages.append({"role": "assistant", "content": response})
+                            
             # After processing the user input and getting a response
             # Check if we should run level analysis
-            if should_analyze_user_level(user_id):
-                with st.spinner("Assessing your progress..."):
-                    # Run the analyzer
-                    previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
+            # if should_analyze_user_level(user_id):
+            #     with st.spinner("Assessing your progress..."):
+            #         # Run the analyzer
+            #         previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
 
-                    analysis_input = {
-                        "messages": llm_chat_history,
-                        "user_level": user_level,
-                        "previous_topics": previous_topics
-                    }
+            #         analysis_input = {
+            #             "messages": llm_chat_history,
+            #             "user_level": user_level,
+            #             "previous_topics": previous_topics
+            #         }
 
-                    analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
-                    analysis_message = analysis_result["messages"][-1].content
+            #         analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
+            #         analysis_message = analysis_result["messages"][-1].content
                     
-                    try:
-                        # Extract the level assessment
-                        # print(type(analysis_message))
-                        # print(analysis_message)
+            #         try:
+            #             # Extract the level assessment
+            #             # print(type(analysis_message))
+            #             # print(analysis_message)
                         
-                        analysis_data = json.loads(analysis_message)
-                        user_level = analysis_data.get("current_level")
-                        topics = analysis_data.get("topics", {})
+            #             analysis_data = json.loads(analysis_message)
+            #             user_level = analysis_data.get("current_level")
+            #             topics = analysis_data.get("topics", {})
                         
-                        # if analysis_data["recommendation"] == "Promote" and analysis_data["confidence"] >= 0.8:
-                        #     # Map levels (assuming you have a mapping function)
-                        #     new_level = get_next_level(user_level)
-                        #     db.update_user_level(user_id, new_level)
-                        #     st.session_state["user_level"] = new_level
-                        #     st.success(f"Congratulations! You've been promoted to {new_level} level.")
+            #             # if analysis_data["recommendation"] == "Promote" and analysis_data["confidence"] >= 0.8:
+            #             #     # Map levels (assuming you have a mapping function)
+            #             #     new_level = get_next_level(user_level)
+            #             #     db.update_user_level(user_id, new_level)
+            #             #     st.session_state["user_level"] = new_level
+            #             #     st.success(f"Congratulations! You've been promoted to {new_level} level.")
                         
-                        # elif analysis_data["recommendation"] == "Demote" and analysis_data["confidence"] >= 0.9:
-                        #     # Higher confidence threshold for demotion
-                        #     new_level = get_previous_level(user_level)
-                        #     db.update_user_level(user_id, new_level)
-                        #     st.session_state["user_level"] = new_level
-                        #     st.info(f"Your level has been adjusted to {new_level}.")
+            #             # elif analysis_data["recommendation"] == "Demote" and analysis_data["confidence"] >= 0.9:
+            #             #     # Higher confidence threshold for demotion
+            #             #     new_level = get_previous_level(user_level)
+            #             #     db.update_user_level(user_id, new_level)
+            #             #     st.session_state["user_level"] = new_level
+            #             #     st.info(f"Your level has been adjusted to {new_level}.")
                         
-                        # Update the timestamp regardless of outcome
-                        db.update_analysis_timestamp(user_id)
+            #             # Update the timestamp regardless of outcome
+            #             db.update_analysis_timestamp(user_id)
                         
-                        # # Save user level and topics
-                        db.save_user_data(user_id, user_level, user_email)
-                        db.update_user_topics(user_id, topics)
+            #             # # Save user level and topics
+            #             db.save_user_data(user_id, user_level, user_email)
+            #             db.update_user_topics(user_id, topics)
                         
-                    except (json.JSONDecodeError, KeyError) as e:
-                        print(f"Error processing analysis result: {e}")
+            #         except (json.JSONDecodeError, KeyError) as e:
+            #             print(f"Error processing analysis result: {e}")

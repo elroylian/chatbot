@@ -16,7 +16,8 @@ from langchain_core.messages import HumanMessage
 from utils.level_manager import should_analyze_user_level, get_next_level, get_previous_level
 
 ## TO DO
-# Check llm_chat_history there may be some issue with it when updating the state of the graph
+# Check llm_chat_history there may be some issue with it when updating the state of the graph (x)
+# Make upload file as st fragment ()
 
 CHATBOT_VERSION = "1.4.2"
 DB_FILENAME = "chat.db"
@@ -71,6 +72,7 @@ def clear_session():
     for var in session_vars:
         if var in st.session_state:
             del st.session_state[var]
+
 
 st.title("💬DSA Chatbot")        
 
@@ -226,13 +228,13 @@ else:
                             st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
                                 
         def tester_function():
-                if "tester" in st.session_state['roles']:
-                    st.title("Extra Options:")
-                    st.write(db.get_user_by_email(st.session_state['email']))
-                    if st.button("Reset User Level", type='primary'):
-                        db.save_user_data(user_info["user_id"], "", st.session_state['email'])
-                        st.session_state["user_level"] = ""
-                        st.success("User level reset successfully.")
+            if "tester" in st.session_state['roles']:
+                st.title("Extra Options:")
+                st.write(db.get_user_by_email(st.session_state['email']))
+                if st.button("Reset User Level", type='primary'):
+                    db.save_user_data(user_info["user_id"], "", st.session_state['email'])
+                    st.session_state["user_level"] = ""
+                    st.success("User level reset successfully.")
         
         if "user_topics" in st.session_state and st.session_state["user_topics"]:
             st.sidebar.markdown("### Topics Covered")
