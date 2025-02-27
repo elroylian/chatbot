@@ -5,17 +5,12 @@ from yaml.loader import SafeLoader
 from model import llm_selected
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from utils.chunk_doc import get_retriever
-from prompt_templates.contextual_query import get_context_query_chain
-from prompt_templates.qa_template import get_qa_chain
-from prompt_templates.intial_template import get_initial_chain
-from prompt_templates.retrieval_check import get_rc_chain
-from prompt_templates.conversation_response import get_conversation_chain
-from prompt_templates.image_template import get_image_chain
-from utils.image_processing import process_image
+from utils.document_processing import process_image, process_pdf
 from operator import itemgetter
 import json
 import re
 import os
+
 import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import (CredentialsError,
                                                ForgotError,
@@ -26,9 +21,10 @@ from streamlit_authenticator.utilities import (CredentialsError,
                                                UpdateError)
 from utils.db_connection import ChatDatabase
 from langchain_core.messages import HumanMessage
-from test_templates.intial_template import app
-from test_templates.retrieval_tool import graph
-from test_templates.image_template import graph as image_graph
+from utils.level_manager import should_analyze_user_level, get_next_level, get_previous_level
+
+## TO DO
+# Check llm_chat_history there may be some issue with it when updating the state of the graph
 
 CHATBOT_VERSION = "1.4.2"
 DB_FILENAME = "chat.db"
@@ -51,8 +47,21 @@ authenticator = stauth.Authenticate(
 )
 
 #####################################
+from test_templates.memory import memory
+from test_templates.intial_template import workflow
+from test_templates.document_text_template import image_text_workflow
+from test_templates.text_template import text_workflow
+from utils.analyser import analyser_workflow
 
-langgraph_config = {"configurable": {"thread_id": "2200499"}}
+langgraph_config = {"configurable": {"thread_id": "1"}}
+
+# conn = sqlite3.connect("checkpoints.sqlite")
+
+
+initial_graph = workflow.compile(checkpointer=memory)
+image_text_graph = image_text_workflow.compile(memory)
+text_graph = text_workflow.compile(memory)
+analyser_graph = analyser_workflow.compile()
 
 print("Initialising the app...\n")
 ##########################################
@@ -73,14 +82,13 @@ def clear_session():
     for var in session_vars:
         if var in st.session_state:
             del st.session_state[var]
-
         
 
 if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
     
     clear_session()
     
-    st.title('DSA Chatbot')
+    st.title("💬DSA Chatbot")
     
     # Create tabs for login and registration
     tab1, tab2 = st.tabs(["Login", "Register"])
@@ -130,6 +138,8 @@ else:
         llm_chat_history = st.session_state["llm_chat_history"]
 
         st.sidebar.write("Welcome, ",st.session_state['name'])
+        authenticator.logout('Logout','sidebar')
+        st.sidebar.write("Version:", CHATBOT_VERSION)
         
         if user_info := db.get_user_by_email(st.session_state['email']):
             
@@ -139,18 +149,6 @@ else:
             # User Info
             user_id = user_info['user_id']
             user_email = user_info['email']
-            
-            def tester_function():
-                if "tester" in st.session_state['roles']:
-                    st.title("Extra Options:")
-                    st.write(db.get_user_by_email(st.session_state['email']))
-                    if st.button("Reset User Level", type='primary'):
-                        db.save_user_data(user_info["user_id"], "", st.session_state['email'])
-                        st.session_state["user_level"] = ""
-                        st.success("User level reset successfully.")
-            
-            with st.sidebar:
-                tester_function()
             
             # Load chat history upon successful login
             user_info = db.get_user_by_email(st.session_state['email'])
@@ -170,7 +168,7 @@ else:
                         else:
                             st.session_state["llm_chat_history"].append(AIMessage(content=message["content"]))
                 
-                # app.update_state(values = {"messages": llm_chat_history}, config = langgraph_config)
+                    initial_graph.update_state(values = {"messages": llm_chat_history}, config = langgraph_config)
             else:
                 # Initialize empty messages list
                 st.session_state.messages = []
@@ -191,31 +189,20 @@ else:
             clear_session()
             st.stop()
 
-        # OLD CHAINS
-        # contextual_query_chain = get_context_query_chain(llm)
-        # image_chain = get_image_chain(llm)    
-        # rag_chain = get_qa_chain(llm, contextual_query_chain, retriever)
-        # initial_chain = get_initial_chain()
-        # retrieval_check_chain = get_rc_chain(llm)
-        
         # print("llm_chat_history: ", llm_chat_history) # for testing
 
-        st.title("DSA Chatbot")
+        st.title("💬DSA Chatbot")
         
         # Add sidebar options
         st.sidebar.title("Options")
-        authenticator.logout('Logout','sidebar')
-        st.sidebar.write("Version:", CHATBOT_VERSION)
         if st.sidebar.button("Clear Chat History"):
             st.session_state["llm_chat_history"] = []
             st.session_state["messages"] = []
             
-            # Get the current state of the app
-            # messages = app.get_state(langgraph_config).values["messages"]
-            # updated_messages = [RemoveMessage(m.id) for m in messages]
             updated_messages = []
-            app.update_state(values = {"messages": updated_messages}, config = langgraph_config)
+            initial_graph.update_state(values = {"messages": updated_messages}, config = langgraph_config)
             db.clear_chat_history(user_id, chat_id)
+            st.toast("Chat history cleared successfully.")
 
         # Add file uploader to sidebar based on user assessment status
         if st.session_state["user_level"] in ["", "null", None]:
@@ -228,13 +215,11 @@ else:
                 print("UPDATING KEY\n")
                 st.session_state["uploader_key"] += 1
             
-            uploaded_files = st.sidebar.file_uploader("Upload Files (Not Done)", 
-                                                      type=["png", "jpg", "jpeg"], 
+            uploaded_files = st.sidebar.file_uploader("Upload Files", 
+                                                      type=["png", "jpg", "jpeg","pdf"], 
                                                       accept_multiple_files=True, 
                                                       key= st.session_state["uploader_key"]
                                                       )
-            
-            from utils.document_processing import process_pdf
             
             # To be passed as input to the LLM
             processed_images = []  # For base64 encoded images
@@ -245,44 +230,43 @@ else:
                     if uploaded_file.size > 5 * 1024 * 1024:  # 5MB limit
                         st.sidebar.error("File too large. Please upload a file smaller than 5MB")
                         continue
-                    
-                    # try:
-                    #     # Process the file
-                    #     result = process_uploaded_file(uploaded_file)
-                        
-                    #     # Store processed content based on type
-                    #     if result['type'] == 'image':
-                    #         processed_images.append(result['content'])
-                    #     else:
-                    #         processed_text.append(result['content'])
-                            
-                    # except Exception as e:
-                    #     st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
                         
                     else:
                         try:
                             # Handle different file types
                             if uploaded_file.type.startswith('image'):
-                                try:
-                                    base64_image, processed_image = process_image(uploaded_file)
-                                    st.sidebar.image(processed_image, caption="Processed Image")
-                                    processed_images.append(base64_image)
-                                    
-                                except Exception as e:
-                                    st.sidebar.error(f"Error processing image: {str(e)}")
+                                base64_image, processed_image = process_image(uploaded_file)
+                                st.sidebar.image(processed_image, caption="Processed Image")
+                                processed_images.append(base64_image)
+                                st.toast("Image uploaded successfully.")
+                                
+                            elif uploaded_file.type == 'application/pdf':
+                                pdf_documents = process_pdf(uploaded_file)
+                                for doc in pdf_documents:
+                                    processed_text.append(doc)
+                                st.sidebar.success(f"Processed PDF: {uploaded_file.name}")
                         except Exception as e:
                             st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
                                 
-                        # else:
-                        #     file_content = process_pdf(uploaded_file)
-                        #     st.sidebar.write(file_content)
-                        
-            # if uploaded_images and st.sidebar.button("Clear Images"):
-            #     uploaded_images = []
-            #     st.sidebar.success("Images cleared")
-            
-            
-
+        def tester_function():
+                if "tester" in st.session_state['roles']:
+                    st.title("Extra Options:")
+                    st.write(db.get_user_by_email(st.session_state['email']))
+                    if st.button("Reset User Level", type='primary'):
+                        db.save_user_data(user_info["user_id"], "", st.session_state['email'])
+                        st.session_state["user_level"] = ""
+                        st.success("User level reset successfully.")
+        
+        if "user_topics" in st.session_state and st.session_state["user_topics"]:
+            st.sidebar.markdown("### Topics Covered")
+            for parent_topic, subtopics in st.session_state["user_topics"].items():
+                st.sidebar.markdown(f"**{parent_topic.capitalize()}**")
+                for subtopic in subtopics:
+                    st.sidebar.write(f"- {subtopic}")
+ 
+        with st.sidebar:
+            tester_function()
+        
         # Display chat messages from history on app rerun
         if "messages" in st.session_state:
             for message in st.session_state.messages:
@@ -310,22 +294,17 @@ else:
                 if st.session_state["user_level"] in ["","null",None]:
                     
                     # New user needs assessment
-                    print("RAN INITIAL CHAIN\n")
+                    print("RAN INITIAL ASSESSMENT CHAIN\n")
                     with st.spinner("Analysing your experience level..."):
                         input_dict = {
                             "messages": [HumanMessage(prompt)],
                         }
                         
-                    output = app.invoke(input_dict, langgraph_config)
+                    output = initial_graph.invoke(input_dict, langgraph_config)
                     
                     # print("this is the output:\n",output)
                     response = output["messages"][-1].content
                     print("this is the response:\n",response)
-
-                    # gebgrgerg = app.get_state(config).values
-                    # print(f'This is the history:\n')
-                    # for message in gebgrgerg["messages"]:
-                    #     message.pretty_print()
                     
                     if "{" in response and "}" in response:
                         try:
@@ -359,6 +338,20 @@ else:
                             if user_level:
                                 print("###############!!! User level is: ", user_level)
                                 st.session_state["user_level"] = user_level
+                                
+                                # Keep only the last assessment message
+                                last_message = {"role": "assistant", "content": full_response}
+                                st.session_state["llm_chat_history"] = [AIMessage(content=full_response)]
+                                st.session_state["messages"] = [last_message]
+                                
+                                # Clear assessment chat
+                                initial_graph.update_state(values = {"messages": st.session_state["llm_chat_history"]}, config = langgraph_config)
+                                db.clear_chat_history(user_id, chat_id)
+                                db.save_message(user_id, chat_id, "assistant", full_response)
+                                
+                                # Rerun the app
+                                st.rerun()
+                                
 
                         except json.JSONDecodeError:
                             print(response)
@@ -378,12 +371,14 @@ else:
                 else:
                 
                     with st.spinner("Thinking..."):
-                    
-                        # Check if the user input contains any document
-                        if processed_images:
+                        if llm_chat_history:
+                            print("HISTORY: ", llm_chat_history[-1].content)
+                        
+                        # Check if the user input contains any document (images or text from PDFs)
+                        if processed_images or processed_text:
                             print("PROCESSING DOCUMENT QUERY\n\n")
-    
-                            # Format content with image
+
+                            # Format content with text and images
                             content = [{"type": "text", "text": prompt}]
                             
                             # Add each image to the content
@@ -395,14 +390,28 @@ else:
                                     }
                                 })
                             
-                            # Initialize state for image workflow
+                            # Handle PDF text content
+                            pdf_context = ""
+                            if processed_text:
+                                # If processed_text is a string
+                                if isinstance(processed_text, str):
+                                    pdf_context = processed_text
+                                # If processed_text is a list of strings
+                                elif isinstance(processed_text, list) and all(isinstance(item, str) for item in processed_text):
+                                    pdf_context = "\n\n".join(processed_text)
+                                # For any other format, try to convert to string
+                                else:
+                                    pdf_context = str(processed_text)
+                            
+                            # Initialize state for image and text workflow
                             state = {
                                 "messages": [HumanMessage(content=content)],
-                                "user_level": user_level
+                                "user_level": user_level,
+                                "pdf_context": pdf_context
                             }
                             
                             # Run the workflow
-                            response = image_graph.invoke(state,langgraph_config)
+                            response = image_text_graph.invoke(state, langgraph_config)
                             
                             # Get the final message and handle response
                             final_message = response["messages"][-1].content
@@ -417,29 +426,79 @@ else:
                             ])
                             st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-                            
-                            # Clear the uploaded images after processing
+                            # Clear the uploaded files after processing
                             update_key()
+                            # Also clear the processed_text and processed_images
+                            processed_images = []
+                            processed_text = []
                             st.rerun()
-                  
                         else:
                             print("PROCESSING NON-DOCUMENT QUERY\n")
                             
                             # Process the user input
-                            from test_templates.retrieval_tool import graph
     
                             inputs = {
                                 "messages": [HumanMessage(prompt)],
                                 "user_level": user_level
                             }
-                            output = graph.invoke(inputs, langgraph_config)
+                            output = text_graph.invoke(inputs, langgraph_config)
                             response = output["messages"][-1].content
-                            st.session_state.messages.append({"role": "assistant", "content": response})
-                            
-                            state = app.get_state(langgraph_config)
-                            messages = state.values["messages"]
-                            # print("Messages: ", messages)
-                            
                             stream_message = re.findall(r'\S+|\s+', response)
                             full_response = st.write_stream(stream_message)
+                            
+                            # Save to database and update histories
                             db.save_message(user_id, chat_id, "assistant", response)
+                            llm_chat_history.extend([
+                                HumanMessage(content=prompt),
+                                AIMessage(content=response),
+                            ])
+                            st.session_state.messages.append({"role": "assistant", "content": response})
+                            
+            # After processing the user input and getting a response
+            # Check if we should run level analysis
+            # if should_analyze_user_level(user_id):
+            #     with st.spinner("Assessing your progress..."):
+            #         # Run the analyzer
+            #         previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
+
+            #         analysis_input = {
+            #             "messages": llm_chat_history,
+            #             "user_level": user_level,
+            #             "previous_topics": previous_topics
+            #         }
+
+            #         analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
+            #         analysis_message = analysis_result["messages"][-1].content
+                    
+            #         try:
+            #             # Extract the level assessment
+            #             # print(type(analysis_message))
+            #             # print(analysis_message)
+                        
+            #             analysis_data = json.loads(analysis_message)
+            #             user_level = analysis_data.get("current_level")
+            #             topics = analysis_data.get("topics", {})
+                        
+            #             # if analysis_data["recommendation"] == "Promote" and analysis_data["confidence"] >= 0.8:
+            #             #     # Map levels (assuming you have a mapping function)
+            #             #     new_level = get_next_level(user_level)
+            #             #     db.update_user_level(user_id, new_level)
+            #             #     st.session_state["user_level"] = new_level
+            #             #     st.success(f"Congratulations! You've been promoted to {new_level} level.")
+                        
+            #             # elif analysis_data["recommendation"] == "Demote" and analysis_data["confidence"] >= 0.9:
+            #             #     # Higher confidence threshold for demotion
+            #             #     new_level = get_previous_level(user_level)
+            #             #     db.update_user_level(user_id, new_level)
+            #             #     st.session_state["user_level"] = new_level
+            #             #     st.info(f"Your level has been adjusted to {new_level}.")
+                        
+            #             # Update the timestamp regardless of outcome
+            #             db.update_analysis_timestamp(user_id)
+                        
+            #             # # Save user level and topics
+            #             db.save_user_data(user_id, user_level, user_email)
+            #             db.update_user_topics(user_id, topics)
+                        
+            #         except (json.JSONDecodeError, KeyError) as e:
+            #             print(f"Error processing analysis result: {e}")

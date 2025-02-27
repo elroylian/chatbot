@@ -1,9 +1,10 @@
 import sqlite3
 from typing import Optional, List, Dict
 import uuid
+import json
 
 class ChatDatabase:
-    def __init__(self, db_path: str = 'dsa_chatbot.db'):
+    def __init__(self, db_path: str = 'chat.db'):
         """Initialize database with specified path."""
         self.db_path = db_path
         self.initialize_database()
@@ -19,25 +20,39 @@ class ChatDatabase:
 
         # Create users table with UUID
         cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            user_level TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                user_level TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
 
         # Create messages table for chat history with UUID foreign key
         cursor.execute('''
-        CREATE TABLE IF NOT EXISTS messages (
-            message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            chat_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
+            CREATE TABLE IF NOT EXISTS messages (
+                message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
+        ''')
+        
+        # Create user analysis table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_analysis (
+                user_id TEXT PRIMARY KEY,
+                last_analysis_timestamp TIMESTAMP,
+                current_level TEXT,
+                previous_level TEXT,
+                confidence_score FLOAT,
+                topics TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+
         ''')
 
         conn.commit()
@@ -149,7 +164,7 @@ class ChatDatabase:
         ORDER BY timestamp ASC
         ''', (user_id, chat_id))
         
-        messages = [{"role": role, "content": content} for role, content, _ in cursor.fetchall()]
+        messages = [{"role": role, "content": content, "timestamp": timestamp} for role, content, timestamp in cursor.fetchall()]
         
         conn.close()
         return messages
@@ -256,4 +271,124 @@ class ChatDatabase:
             print("User not found, cannot update level.")
             return False
         return self.update_user_level(user_id, new_level)
+    
+    def update_analysis_timestamp(self, user_id):
+        """Update the timestamp of the last analysis."""
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        INSERT INTO user_analysis (user_id, last_analysis_timestamp)
+        VALUES (?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET
+            last_analysis_timestamp = CURRENT_TIMESTAMP
+        ''', (user_id,))
+        
+        conn.commit()
+        conn.close()
+
+    def get_last_analysis_timestamp(self, user_id):
+        """Get the timestamp of the last analysis."""
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT last_analysis_timestamp FROM user_analysis WHERE user_id = ?', (user_id,))
+        result = cursor.fetchone()
+        
+        conn.close()
+        return result[0] if result else None
+    
+    def reset_analysis_timestamp(self, user_id: str) -> bool:
+        """Reset the last analysis timestamp for a given user."""
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                UPDATE user_analysis
+                SET last_analysis_timestamp = NULL
+                WHERE user_id = ?
+            ''', (user_id,))
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Database error while resetting analysis timestamp: {e}")
+            return False
+        finally:
+            conn.close()
+    
+            
+    def get_user_topics(self, user_id: str,) -> List[str]:
+        """Update the user's topics in the user_analysis table."""
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT topics FROM user_analysis
+        WHERE user_id = ?
+        ''', (user_id,))
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else None
+            
+
+    def append_user_topic(self, user_id: str, parent_topic: str, subtopic: str) -> bool:
+        """
+        Append a subtopic under a given parent topic for the user in the user_analysis table.
+        If the parent topic doesn't exist, it creates a new entry.
+        """
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        try:
+            # Fetch current topics JSON for the user
+            cursor.execute("SELECT topics FROM user_analysis WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                topics_dict = json.loads(row[0])
+            else:
+                topics_dict = {}
+            
+            # Append the subtopic under the specified parent topic
+            if parent_topic in topics_dict:
+                if subtopic not in topics_dict[parent_topic]:
+                    topics_dict[parent_topic].append(subtopic)
+            else:
+                topics_dict[parent_topic] = [subtopic]
+            
+            # Convert the dictionary back to a JSON string
+            topics_json = json.dumps(topics_dict)
+            
+            # Update the database: if the user exists, update topics; if not, insert a new record
+            cursor.execute('''
+                INSERT INTO user_analysis (user_id, topics)
+                VALUES (?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET topics = excluded.topics
+            ''', (user_id, topics_json))
+            
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Database error while appending topics: {e}")
+            return False
+        finally:
+            conn.close()
+    
+    def update_user_topics(self, user_id: str, topics: Dict[str, List[str]]) -> bool:
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        try:
+            topics_json = json.dumps(topics)
+            cursor.execute('''
+            INSERT INTO user_analysis (user_id, topics)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET topics = excluded.topics
+            ''', (user_id, topics_json))
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return False
+        finally:
+            conn.close()
+
+
 

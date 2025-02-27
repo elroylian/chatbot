@@ -11,7 +11,7 @@ from prompt_templates.intial_template import get_initial_chain
 from prompt_templates.retrieval_check import get_rc_chain
 from prompt_templates.conversation_response import get_conversation_chain
 from prompt_templates.image_template import get_image_chain
-from utils.image_processing import process_image
+from utils.document_processing import process_image
 from operator import itemgetter
 import json
 import re

@@ -8,6 +8,7 @@ sentence-transformers
 langchain-ollama
 langchain-milvus
 langgraph 
+langgraph-checkpoint-sqlite
 langsmith
 rank_bm25
 nltk
@@ -16,3 +17,4 @@ transformers
 protobuf==3.20.3
 pymupdf4llm
 streamlit-authenticator
+pdfplumber

@@ -9,28 +9,17 @@ credentials:
       first_name: Elroy
       last_name: Lian
       logged_in: false
-      password: $2b$12$dknIOTMKMeYsGWzvZu5fkObNdmaoxR6dvIEuYDPn7dEW8AlA4hu7K
-      password_hint: abcde123!
-      roles:
-      - user
-      - tester
-    testuser:
-      email: testuser@gmail.com
-      first_name: Test
-      last_name: User
-      logged_in: false
-      password: $2b$12$dI17BU1VBL.i6Hu9mMQSnux9ShVnXoTF/u3KH4OjgsPK3gc59FBRy
+      password: $2b$12$CrncArl1neReuBJrYhsCaehRQ4mtwlBXJJA1J/0MfvQJWv/PMfxRG
       password_hint: Abcde123!
       roles:
       - user
       - tester
-    testuser1:
-      email: testuser1@gmail.com
-      first_name: Test
-      last_name: User
+    roylwz2:
+      email: elroy2304@gmail.com
+      first_name: Elroy
+      last_name: Test
       logged_in: false
-      password: $2b$12$ZB5pt6eYXYjbLLxTILpeSu2SzQuS6luR6yUL4eIHD9uJaRh0AoZq6
+      password: $2b$12$BkKHz.z2a2LKPEV5spChZ.ffkcZ2nyDVU6KvdOSsbqk/NK3IqNMEW
       password_hint: Abcde123!
       roles:
       - user
-      - tester

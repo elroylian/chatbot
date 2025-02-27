@@ -110,7 +110,7 @@ Classify the input into:
 - Non-technical questions
 
 For pleasantries: Respond naturally like a friendly tutor
-For other: Redirect to DSA while being encouraging
+For other: Tell user that it is out of your scope and redirect them to ask about DSA while being encouraging
 
 Return:
 1. message_type: 'dsa', 'pleasantry', or 'other'
@@ -534,22 +534,22 @@ def synthesize_response(state):
 
 ################################################################################################################
 # Graph setup
-workflow = StateGraph(AgentState)
+text_workflow = StateGraph(AgentState)
 
 # Add nodes
-workflow.add_node("classify_user_input", classify_user_input)
-workflow.add_node("expand_ambiguous_question", expand_ambiguous_question)
-workflow.add_node("evaluate_and_retrieve", evaluate_and_retrieve)
+text_workflow.add_node("classify_user_input", classify_user_input)
+text_workflow.add_node("expand_ambiguous_question", expand_ambiguous_question)
+text_workflow.add_node("evaluate_and_retrieve", evaluate_and_retrieve)
 retrieve = ToolNode([retriever_tool])
-workflow.add_node("retrieve", retrieve)
-workflow.add_node("synthesize_response", synthesize_response)
-workflow.add_node("optimize_query", optimize_query)
+text_workflow.add_node("retrieve", retrieve)
+text_workflow.add_node("synthesize_response", synthesize_response)
+text_workflow.add_node("optimize_query", optimize_query)
 
 # Add edges
-workflow.add_edge(START, "classify_user_input")
+text_workflow.add_edge(START, "classify_user_input")
 
 # Modify validation to return three possible outcomes
-workflow.add_conditional_edges(
+text_workflow.add_conditional_edges(
     "classify_user_input",
     lambda x: x["next"],
     {
@@ -560,9 +560,9 @@ workflow.add_conditional_edges(
 )
 
 # After clarification, go to agent
-workflow.add_edge("expand_ambiguous_question", "evaluate_and_retrieve")
+text_workflow.add_edge("expand_ambiguous_question", "evaluate_and_retrieve")
 
-workflow.add_conditional_edges(
+text_workflow.add_conditional_edges(
     "evaluate_and_retrieve",
     tools_condition,
     {
@@ -571,7 +571,7 @@ workflow.add_conditional_edges(
     }
 )
 
-workflow.add_conditional_edges(
+text_workflow.add_conditional_edges(
     "retrieve",
     assess_document_relevance,
     {
@@ -580,9 +580,10 @@ workflow.add_conditional_edges(
     }
 )
 
-workflow.add_edge("synthesize_response", END)
-workflow.add_edge("optimize_query", "evaluate_and_retrieve")
+text_workflow.add_edge("synthesize_response", END)
+text_workflow.add_edge("optimize_query", "evaluate_and_retrieve")
 
 # Compile graph
-from test_templates.memory import memory
-graph = workflow.compile(memory)
+# from test_templates.memory import memory
+
+# text_graph = text_workflow.compile(memory)

@@ -31,45 +31,50 @@ def analyze_user_level(state: AgentState) -> Dict[str, Any]:
         if i+1 < len(messages):
             if isinstance(messages[i], HumanMessage) and isinstance(messages[i+1], AIMessage):
                 conversation_pairs.append({
-                    "user": messages[i].content,
-                    "assistant": messages[i+1].content,
+                    "question": messages[i].content,
+                    "response": messages[i+1].content,
+                    "follow_up": messages[i+2].content if i+2 < len(messages) else None
                 })
     
     prompt = PromptTemplate(
-        template="""Assess the user's understanding and progress based on their complete interactions.
+        template="""Assess the user's learning progression based on their interactions.
 
 Current Level: {user_level}
 
-Conversation History:
+Level Definitions:
+- Beginner: Basic questions about concepts, needs step-by-step explanations
+- Intermediate: Implementation questions, understands and applies concepts
+- Advanced: Complex questions, optimization focus, deep technical discussions
+
+Conversation:
 {conversation_pairs}
+
+Assessment Criteria:
+1. Learning Progression:
+   - Does the user ask follow-up questions?
+   - Do questions become more complex over time?
+   - Are they applying concepts from previous answers?
+
+2. Understanding Depth:
+   - Do they ask for implementation after understanding concepts?
+   - Can they connect different concepts together?
+   - Do they show curiosity about optimization?
+
+3. Interaction Quality:
+   - Simple questions vs detailed inquiries
+   - Passive learning vs active engagement
+   - Basic terms vs technical terminology
 
 Return ONLY a JSON object in this exact format:
 {{
     "current_level": "{user_level}",
     "recommendation": "Promote/Maintain/Demote",
     "confidence": 0.0-1.0,
-    "evidence": ["specific interaction showing understanding", "another specific interaction"],
+    "evidence": ["specific interaction showing progress/regression", "another interaction"],
     "reasoning": ["detailed reason for recommendation", "additional reason"]
 }}
 
-Assess:
-1. Technical Accuracy:
-   - Correct use of DSA terminology
-   - Accuracy in problem-solving attempts
-   - Understanding of concept relationships
-
-2. Depth of Understanding:
-   - Quality of their explanations
-   - Ability to apply concepts
-   - Response to chatbot's explanations
-   - Follow-up questions showing comprehension
-
-3. Learning Progression:
-   - Improvement in question quality
-   - Better understanding shown over time
-   - Application of previous learning
-
-Only recommend level changes with strong evidence (confidence > 0.8)
+Note: Require at least 3 meaningful interactions before suggesting promotion/demotion.
 """,
         input_variables=["conversation_pairs", "user_level"]
     )
@@ -85,9 +90,10 @@ Only recommend level changes with strong evidence (confidence > 0.8)
         
         # Format conversation pairs for prompt
         conversation_text = "\n".join([
-            f"User: {pair['user']}\nAssistant: {pair['assistant']}\n"
+            f"Question: {pair['question']}"
             for pair in conversation_pairs
         ])
+        
         
         analysis = llm_with_analysis.invoke(prompt.format(
             conversation_pairs=conversation_text,
