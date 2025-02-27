@@ -7,7 +7,7 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from typing_extensions import Annotated, TypedDict
 from langgraph.graph import START, MessagesState, StateGraph
-from model import llm_selected
+from utils.model import get_llm
 
 ### Initial Question ###
 inital_system_prompt = (    
@@ -50,7 +50,7 @@ initial_q_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-llm = llm_selected
+llm = get_llm()
     
 def get_initial_chain():
     return initial_q_prompt | llm

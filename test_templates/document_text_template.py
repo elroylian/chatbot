@@ -19,6 +19,8 @@ from langgraph.graph.message import add_messages
 from langgraph.graph import END, StateGraph, START
 import streamlit as st
 
+from utils.model import get_llm
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -42,23 +44,6 @@ class DocumentAnalysisResult(BaseModel):
     identified_concepts: list = Field(description="List of DSA concepts identified in the document")
     confidence_score: float = Field(description="Confidence score for DSA content identification (0-1)")
     document_type: str = Field(description="Type of document: 'image', 'text', or 'both'")
-
-def get_api_key() -> str:
-    """Safely retrieve API key from Streamlit secrets"""
-    try:
-        return st.secrets["OpenAI_key"]
-    except KeyError:
-        logger.error("OpenAI API key not found in Streamlit secrets")
-        raise ValueError("OpenAI API key not found. Please set it in your Streamlit secrets.")
-
-def get_llm(temperature: float = 0, model: str = DEFAULT_MODEL, streaming: bool = True) -> ChatOpenAI:
-    """Create a ChatOpenAI instance with the given parameters"""
-    return ChatOpenAI(
-        model_name=model,
-        temperature=temperature,
-        streaming=streaming,
-        api_key=get_api_key()
-    )
 
 def generate_dsa_response(state: AgentState) -> Dict[str, Any]:
     """

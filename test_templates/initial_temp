@@ -1,0 +1,167 @@
+"""
+Initial User Assessment Module for DSA Chatbot
+
+This module conducts an initial assessment of user DSA knowledge
+level through a structured conversation and assigns a competency level.
+"""
+
+import logging
+from typing import Annotated, Dict, Sequence, Any
+from typing_extensions import TypedDict
+
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+from langgraph.graph import START, StateGraph
+import streamlit as st
+
+# Import the model
+from model import llm_selected
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ===== State Management =====
+
+class AssessmentState(TypedDict):
+    """State schema for the initial assessment workflow"""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    full_json_response: str = ""  # Field to store the full JSON response
+
+# ===== System Prompts =====
+
+INITIAL_SYSTEM_PROMPT = """You are a chat application specializing in Data Structures and Algorithms (DSA) and code implementations.
+
+The user is new to your application and you need to assess their DSA knowledge level. Ask ONE question at a time in this specific order:
+
+1. First, ask about their familiarity with basic data structures (arrays, linked lists, stacks, queues) on a scale of 1-5.
+
+2. Only if they rate basic structures 2 or higher, ask about their understanding of sorting algorithms (e.g., insertion sort, merge sort) on a scale of 1-5.
+   If they rated basic structures as 1, automatically assign 1 to sorting algorithms.
+
+3. Only if they rate sorting algorithms 2 or higher, ask about their experience with advanced topics (e.g., trees, graphs, dynamic programming) on a scale of 1-5.
+   If they rated sorting algorithms as 1, automatically assign 1 to advanced topics.
+
+Determine their competency level strictly based on the following criteria:
+- Beginner: if most of the answers are 1-2
+- Intermediate: if most of the answers are 3-4
+- Advanced: if most of the answers are 5
+
+After completing the assessment, thank the user and prompt them to ask their DSA question using phrases like "What DSA question can I help you with today?" or "Please go ahead and ask your DSA question now."
+
+OUTPUT FORMAT:
+**ALL** text, including any explanations or clarifications, must be contained within the "message" field.
+Each response MUST strictly always be a syntactically correct JSON with the following format:
+{{
+    "message": string,
+    "data": {{
+        "user_level": string | null
+    }}
+}}
+
+You must ask a follow-up question if the user's input is invalid or incomplete."""
+
+# ===== Prompt Templates =====
+
+def create_assessment_prompt():
+    """Create the assessment prompt template"""
+    return ChatPromptTemplate.from_messages([
+        ("system", INITIAL_SYSTEM_PROMPT),
+        MessagesPlaceholder(variable_name="messages"),
+    ])
+
+# ===== Graph Functions =====
+
+def call_initial_model(state: AssessmentState) -> Dict[str, Any]:
+    """
+    Call the LLM model with the assessment prompt and process the response.
+    
+    Args:
+        state: Current state containing messages
+        
+    Returns:
+        Updated state with the model's response, extracting just the message field
+        from the JSON while preserving the full JSON output
+    """
+    logger.info("Calling initial assessment model")
+    
+    try:
+        # Create prompt and chain
+        assessment_prompt = create_assessment_prompt()
+        chain = assessment_prompt | llm_selected
+        
+        # Invoke the model to get the full JSON response
+        full_response = chain.invoke(state)
+        logger.info("Assessment model response received")
+        
+        # Parse the JSON to extract just the message part
+        import json
+        import re
+        
+        try:
+            # Try to extract JSON from the response if it's embedded in text
+            json_match = re.search(r'\{.*\}', full_response.content, re.DOTALL)
+            json_str = json_match.group(0) if json_match else full_response.content
+            
+            # Clean any markdown code formatting
+            json_str = json_str.replace('```json', '').replace('```', '')
+            
+            # Parse the JSON
+            parsed_response = json.loads(json_str)
+            
+            # Extract just the message for display to the user
+            message_only = parsed_response.get("message", full_response.content)
+            
+            # Create a response with just the message content while preserving the full JSON
+            from langchain_core.messages import AIMessage
+            return {
+                "messages": [AIMessage(content=message_only)],
+                "full_json_response": full_response.content  # Save the full JSON for later extraction
+            }
+            
+        except (json.JSONDecodeError, AttributeError, Exception) as json_err:
+            logger.error(f"Error extracting message from JSON: {str(json_err)}")
+            # Fall back to using the raw response if JSON parsing fails
+            return {"messages": [full_response]}
+        
+    except Exception as e:
+        logger.error(f"Error in initial assessment: {str(e)}", exc_info=True)
+        error_message = "I'm having trouble with the assessment. Let's try a different approach. On a scale of 1-5, how would you rate your overall knowledge of Data Structures and Algorithms?"
+        
+        # Use the model directly as fallback
+        from langchain_core.messages import AIMessage
+        fallback_response = AIMessage(content=error_message)
+        return {"messages": [fallback_response]}
+
+# ===== Workflow Creation =====
+
+def create_assessment_workflow():
+    """Create the initial assessment workflow graph"""
+    logger.info("Setting up initial assessment workflow graph")
+    
+    # Create state graph with schema
+    workflow = StateGraph(state_schema=AssessmentState)
+    
+    # Add nodes
+    workflow.add_node("model", call_initial_model)
+    
+    # Add edges
+    workflow.add_edge(START, "model")
+    
+    return workflow
+
+# Initialize the workflow
+workflow = create_assessment_workflow()
+
+def get_initial_chain():
+    """Get the initial assessment chain for direct invocation"""
+    assessment_prompt = create_assessment_prompt()
+    return assessment_prompt | llm_selected
+
+# Optional: Create a standalone runnable for testing
+runnable = get_initial_chain()

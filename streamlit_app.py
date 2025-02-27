@@ -128,6 +128,7 @@ else:
         if "messages" not in st.session_state:
             st.session_state["messages"] = []
         
+        
         # Load user info from the database
         if user_info := db.get_user_by_email(st.session_state['email']):
             
@@ -158,7 +159,11 @@ else:
             
             # Initialize user level
             st.session_state["user_level"] = db.get_user_level(user_id)
-            user_level = st.session_state["user_level"]
+            
+            if st.session_state["user_level"]:
+                user_level = st.session_state["user_level"]
+            else:
+                st.session_state["user_level"] = ""
         else:
             st.error("User not found in the database.")
             st.stop()
@@ -270,10 +275,11 @@ else:
                 stream = []
 
                 # Before processing user input, validate user level status
-                if st.session_state["user_level"] in ["","null",None]:
+                if st.session_state["user_level"].lower() not in ["beginner", "intermediate", "advanced"]:
                     
                     # New user needs assessment
                     print("RAN INITIAL ASSESSMENT CHAIN\n")
+                    
                     with st.spinner("Analysing your experience level..."):
                         input_dict = {
                             "messages": [HumanMessage(prompt)],
