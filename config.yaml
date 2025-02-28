@@ -6,8 +6,8 @@ credentials:
   usernames:
     roylwz:
       email: elroy7602@gmail.com
-      first_name: Elroy
-      last_name: Lian
+      first_name: Test
+      last_name: User
       logged_in: false
       password: $2b$12$CrncArl1neReuBJrYhsCaehRQ4mtwlBXJJA1J/0MfvQJWv/PMfxRG
       password_hint: Abcde123!

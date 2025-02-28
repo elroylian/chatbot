@@ -23,6 +23,7 @@ from langgraph.prebuilt import ToolNode
 
 import streamlit as st
 from utils.chunk_doc import get_retriever
+from utils.model import get_llm
 
 # Configure logging
 logging.basicConfig(
@@ -30,10 +31,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Constants
-DEFAULT_MODEL = "gpt-4o-mini"
-GRADING_THRESHOLD = 0.65
 
 # ===== Models and Type Definitions =====
 
@@ -105,25 +102,6 @@ class GradeResult(BaseModel):
 
 
 # ===== Utility Functions =====
-
-def get_api_key() -> str:
-    """Safely retrieve API key from Streamlit secrets"""
-    try:
-        return st.secrets["OpenAI_key"]
-    except KeyError:
-        logger.error("OpenAI API key not found in Streamlit secrets")
-        raise ValueError("OpenAI API key not found. Please set it in your Streamlit secrets.")
-
-
-def get_llm(temperature: float = 0, model: str = DEFAULT_MODEL, streaming: bool = True) -> ChatOpenAI:
-    """Create a ChatOpenAI instance with the given parameters"""
-    return ChatOpenAI(
-        model_name=model,
-        temperature=temperature,
-        streaming=streaming,
-        api_key=get_api_key()
-    )
-
 
 def format_conversation_context(messages: List[BaseMessage], max_messages: int = 6) -> str:
     """Format conversation context from messages"""
@@ -274,9 +252,6 @@ def expand_ambiguous_question(state: AgentState) -> Dict[str, Any]:
         assessment_prompt = PromptTemplate(
             template="""
 Analyze this question in the context of a Data Structures and Algorithms conversation.
-
-Previous conversation:
-{context}
 
 Current question: {question}
 
@@ -471,18 +446,22 @@ def assess_document_relevance(state: AgentState) -> Literal["generate", "rewrite
     # Define the simplified grading prompt that asks for a direct decision
     prompt = PromptTemplate(
         template="""You are a DSA expert grading retrieved content for both Data Structures and Algorithms topics.
+<Question>
+{question}
+</Question>
 
-Question: {question}
-
-Retrieved Content:
+<Retrieved Content>
 {content}
+</Retrieved Content>
 
+<Grading Criteria>
 Grade this content on:
 1. Relevance: Does it directly address the DSA concepts in the question?
 2. Completeness: Does it cover all aspects needed for a good answer?
 3. Technical Accuracy: Is the DSA information correct and precise?
 4. Algorithm Coverage: Does it adequately explain algorithmic concepts if the question is about algorithms?
 5. Data Structure Coverage: Does it properly explain data structure concepts if the question is about data structures?
+</Grading Criteria>
 
 Example DSA concepts to check for:
 - Data structure definitions, properties, operations, and implementations
@@ -496,7 +475,10 @@ Based on your assessment, make a decisive recommendation:
 - Answer "GENERATE" if the content is good enough to generate a response (relevance > 0.6, overall quality sufficient)
 - Answer "REWRITE" if the content isn't relevant or complete enough and we should try to get better content
 
-Your answer must be ONLY one word: either "GENERATE" or "REWRITE".""",
+<Output Instruction>
+Your answer must be ONLY one word: either "GENERATE" or "REWRITE".
+</Output Instruction>
+""",
         input_variables=["question", "content"]
     )
 
