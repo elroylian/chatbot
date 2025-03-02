@@ -110,16 +110,36 @@ class ChatDatabase:
             return False
         finally:
             conn.close()
-
-    def create_new_user(self, email: str, user_level: str = '') -> Optional[str]:
+            
+    def update_user_data(self, user_id: str, user_level: str, email: str) -> bool:
         """
-        Create a new user and return their UUID.
-        Returns None if creation fails.
+        Update specific user data fields in the database.
+        
+        Args:
+            user_id (str): The unique identifier for the user
+            user_level (str): The user's DSA competency level (beginner, intermediate, advanced)
+            email (str): The user's email address
+            
+        Returns:
+            bool: True if update was successful, False otherwise
         """
-        user_id = self.generate_user_id()
-        if self.save_user_data(user_id, user_level, email):
-            return user_id
-        return None
+        try:
+            conn = self.create_connection()
+            cursor = conn.cursor()
+            
+            # Directly update the specified fields
+            cursor.execute(
+                "UPDATE users SET user_level = ?, email = ? WHERE user_id = ?",
+                (user_level, email, user_id)
+            )
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            print(f"Error updating user data: {str(e)}", exc_info=True)
+            return False
     
     def get_user_by_username(self, username: str) -> Optional[Dict]:
         """

@@ -17,9 +17,12 @@ from langchain_core.messages import HumanMessage
 from utils.level_manager import should_analyze_user_level
 
 ## TO DO
-# Analysis should only be done after initial assessment
 # Test promoting and demoting users
+# Analysis should only be done after initial assessment
 # Analysis should be done when user 'Clear History'
+# Check topics page when user reloads page after closing (???)
+# See if there is a way to update state in the graph
+
 
 # Configure logging
 logging.basicConfig(
@@ -55,8 +58,6 @@ from test_templates.document_text_template import document_text_workflow
 from test_templates.text_template import text_workflow
 from utils.analyser import analyser_workflow
 
-langgraph_config = {"configurable": {"thread_id": "1"}}
-
 initial_graph = workflow.compile(checkpointer=memory)
 document_text_graph = document_text_workflow.compile(memory)
 text_graph = text_workflow.compile(memory)
@@ -79,10 +80,9 @@ if(cookie_session_available):
     st.session_state["authentication_status"] = True
     user_data = db.get_user_by_username(cookie_session_available["username"])
     roles = json.loads(user_data["roles"])
-    print("Roles: ",roles)
     st.session_state["roles"] = roles["roles"]
     st.session_state["email"] = user_data["email"]
-    print("Cookie Exists: ",cookie_session_available)
+    st.session_state["username"] = user_data["username"]
 
 def clear_session():
     # Reset chat history when user logs out
@@ -90,9 +90,13 @@ def clear_session():
     session_vars = ["messages", "llm_chat_history", "user_level", "user_topics"]
     for var in session_vars:
         if var in st.session_state:
-            del st.session_state[var]
+            del st.session_state[var]   
 
-        
+def reset_all_graph_states(config):
+    empty_messages = []
+    initial_graph.update_state(values={"messages": empty_messages}, config=config)
+    document_text_graph.update_state(values={"messages": empty_messages}, config=config)
+    text_graph.update_state(values={"messages": empty_messages}, config=config)
 
 def auth_page():
     clear_session()
@@ -144,7 +148,7 @@ def chatbot_page():
     st.title("💬DSA Chatbot")
     st.sidebar.text(f"Version: {CHATBOT_VERSION}" )
     st.sidebar.divider()
-    st.sidebar.text(f"Welcome, {st.session_state['name']}")
+    st.sidebar.text(f"Welcome, {st.session_state['username']}!")
     st.sidebar.write("Your account")
     
     authenticator.login('unrendered',clear_on_submit=True)
@@ -159,8 +163,6 @@ def chatbot_page():
     if "user_id" not in st.session_state:
         st.session_state["user_id"] = ""
     
-    
-    print(f'your role is {st.session_state["roles"]}')
     # Load user info from the database
     if user_info := db.get_user_by_email(st.session_state['email']):
         
@@ -175,6 +177,9 @@ def chatbot_page():
         chat_id = f"{user_info['user_id']}_1"
         chat_history = db.load_chat_history(user_info['user_id'], chat_id)
         
+        # Initialize the language graph configuration
+        langgraph_config = {"configurable": {"thread_id": user_id}}
+        
         # If chat history exists, load it into the messages list
         if chat_history:
             if st.session_state["messages"] == []:
@@ -184,7 +189,10 @@ def chatbot_page():
                     else:
                         st.session_state["messages"].append(AIMessage(content=message["content"]))
                 
+                text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                document_text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                 initial_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                
         
         llm_chat_history = st.session_state["messages"]
         
@@ -207,10 +215,11 @@ def chatbot_page():
         # st.session_state["llm_chat_history"] = []
         st.session_state["messages"] = []
         
-        updated_messages = []
-        initial_graph.update_state(values = {"messages": updated_messages}, config = langgraph_config)
+        # Reset all graph states
+        reset_all_graph_states(langgraph_config)
+        
         db.clear_chat_history(user_id, chat_id)
-        st.toast("Chat history cleared successfully.","✅")
+        st.toast("Chat history cleared successfully.",icon="✅")
 
     # Add file uploader to sidebar based on user assessment status
     if st.session_state["user_level"] in ["", "null", None]:
@@ -245,7 +254,7 @@ def chatbot_page():
                             base64_image, processed_image = process_image(uploaded_file)
                             st.sidebar.image(processed_image, caption="Processed Image")
                             processed_images.append(base64_image)
-                            st.toast("Image uploaded successfully.")
+                            st.toast("Image uploaded successfully.",icon="✅")
                             
                         elif uploaded_file.type == 'application/pdf':
                             pdf_documents = process_pdf(uploaded_file)
@@ -260,7 +269,7 @@ def chatbot_page():
             st.sidebar.text("Debug Options (!!!):")
             st.write(db.get_user_by_email(st.session_state['email']))
             if st.button("Reset User Level", type='primary'):
-                db.save_user_data(user_info["user_id"], "", st.session_state['email'])
+                db.update_user_data(user_info["user_id"], "", st.session_state['email'])
                 st.session_state["user_level"] = ""
                 st.success("User level reset successfully.")
 
@@ -313,7 +322,7 @@ def chatbot_page():
 
                         # Extract necessary fields
                         user_level = data.get("data").get("user_level")
-                        db.save_user_data(user_id, user_level,user_email)
+                        db.update_user_data(user_id, user_level,user_email)
 
                         # Extract message from LLM
                         message = data.get("message")
@@ -336,7 +345,10 @@ def chatbot_page():
                             st.session_state["messages"] = [AIMessage(content=full_response)]
                             
                             # Clear assessment chat
+                            text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                            document_text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                             initial_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                            
                             db.clear_chat_history(user_id, chat_id)
                             db.save_message(user_id, chat_id, "assistant", full_response)
                             
@@ -434,7 +446,7 @@ def chatbot_page():
     
         # After processing the user input and getting a response
         # Check if we should run level analysis
-        if should_analyze_user_level(user_id) and st.session_state["authentication_status"] not in [None,False]:
+        if should_analyze_user_level(user_id) and st.session_state["user_level"] not in ["", "null", None]:
             with st.spinner("Assessing your progress..."):
                 # Run the analyzer
                 previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
@@ -475,7 +487,7 @@ def chatbot_page():
                     db.update_analysis_timestamp(user_id)
                     
                     # # Save user level and topics
-                    db.save_user_data(user_id, user_level, user_email)
+                    db.update_user_data(user_id, user_level, user_email)
                     db.update_user_topics(user_id, topics)
                     
                 except (json.JSONDecodeError, KeyError) as e:
@@ -491,14 +503,11 @@ def topics():
 
     user_id = st.session_state["user_id"]
     
-    # Initialize the database (adjust the DB path if needed)
-    db = ChatDatabase("chat.db")
-    
     # Retrieve topics from the database using the get_user_topics() function
     topics = db.get_user_topics(user_id)  # Expected to return a dict {parent_topic: [subtopics]}
     topics = json.loads(topics) if topics else {}
     
-    if topics:
+    if topics != "{}":
         # Sidebar elements: filter and overview metric
         st.sidebar.header("Filter Topics")
         parent_topics = list(topics.keys())
@@ -529,6 +538,7 @@ def topics():
         # Sidebar metric: Total number of subtopics learned
         total_subtopics = sum(len(subs) for subs in topics.values())
         st.sidebar.metric("Total Subtopics Learned", total_subtopics)
+        
     else:
         st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
 

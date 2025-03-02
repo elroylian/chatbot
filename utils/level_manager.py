@@ -1,6 +1,10 @@
 from datetime import datetime, timedelta
 from utils.db_connection import ChatDatabase
 
+# Constants
+TIME_DELTA = 7  # Days
+NUM_INTERACTIONS = 2
+
 db = ChatDatabase("chat.db")
 
 def should_analyze_user_level(user_id):
@@ -31,8 +35,8 @@ def should_analyze_user_level(user_id):
                 interaction_count += 1
     
     # Criteria: At least 7 days and 10 interactions since last analysis
-    time_threshold = datetime.now() - last_analysis_datetime >= timedelta(days=7)
-    interaction_threshold = interaction_count >= 2
+    time_threshold = datetime.now() - last_analysis_datetime >= timedelta(days=TIME_DELTA)
+    interaction_threshold = interaction_count >= NUM_INTERACTIONS
     # print("Last Analysis: ", last_analysis_datetime)
     print("Should Analyze: ", time_threshold or interaction_threshold)
     print("Time Threshold: ", time_threshold)

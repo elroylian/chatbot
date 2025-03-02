@@ -16,6 +16,7 @@ from langgraph.graph.message import add_messages
 from langgraph.graph import END, StateGraph, START
 import streamlit as st
 import json
+from utils.model import get_llm
 
 # Configure logging
 logging.basicConfig(
@@ -25,7 +26,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-DEFAULT_MODEL = "gpt-4o-mini"
 CONFIDENCE_THRESHOLD = 0.8
 
 class AgentState(TypedDict):
@@ -42,23 +42,6 @@ class LevelAssessment(BaseModel):
     evidence: List[str] = Field(description="Supporting evidence from questions")
     reasoning: List[str] = Field(description="Reasons for recommendation")
     topics: Dict[str, List[str]] = Field(description="Hierarchical topics; keys are parent topics and values are lists of subtopics")
-
-def get_api_key() -> str:
-    """Safely retrieve API key from Streamlit secrets"""
-    try:
-        return st.secrets["OpenAI_key"]
-    except KeyError:
-        logger.error("OpenAI API key not found in Streamlit secrets")
-        raise ValueError("OpenAI API key not found. Please set it in your Streamlit secrets.")
-
-def get_llm(temperature: float = 0, model: str = DEFAULT_MODEL, streaming: bool = True) -> ChatOpenAI:
-    """Create a ChatOpenAI instance with the given parameters"""
-    return ChatOpenAI(
-        model_name=model,
-        temperature=temperature,
-        streaming=streaming,
-        api_key=get_api_key()
-    )
 
 def format_conversation_context(messages: List[BaseMessage]) -> str:
     """Format conversation context from messages"""
@@ -245,5 +228,6 @@ def create_analyser_workflow():
     workflow.add_edge("analyze", END)
     
     return workflow
+
 
 analyser_workflow = create_analyser_workflow()
