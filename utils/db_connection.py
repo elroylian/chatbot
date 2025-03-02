@@ -22,6 +22,8 @@ class ChatDatabase:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id TEXT PRIMARY KEY,
+                username TEXT DEFAULT '',
+                roles TEXT DEFAULT '',
                 email TEXT UNIQUE NOT NULL,
                 user_level TEXT DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -84,7 +86,7 @@ class ChatDatabase:
             conn.close()
             return messages
 
-    def save_user_data(self, user_id: str, user_level: str, email: str) -> bool:
+    def save_user_data(self, user_id: str, user_level: str, email: str, username: str, roles: str) -> bool:
         """
         Save or update user data in the database.
         Returns True if successful, False otherwise.
@@ -94,12 +96,12 @@ class ChatDatabase:
         
         try:
             cursor.execute('''
-            INSERT INTO users (user_id, email, user_level)
-            VALUES (?, ?, ?)
+            INSERT INTO users (user_id, email, user_level, username, roles)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 user_level = excluded.user_level,
                 email = COALESCE(excluded.email, users.email)
-            ''', (user_id, email, user_level))
+            ''', (user_id, email, user_level, username, roles))
             
             conn.commit()
             return True
@@ -117,6 +119,54 @@ class ChatDatabase:
         user_id = self.generate_user_id()
         if self.save_user_data(user_id, user_level, email):
             return user_id
+        return None
+    
+    def get_user_by_username(self, username: str) -> Optional[Dict]:
+        """
+        Get user_id, email, user_level, created_at, username, and roles by username.
+        Returns None if user not found
+        
+        """
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT user_id, email, user_level, created_at, username, roles FROM users WHERE username = ?', (username,))
+        result = cursor.fetchone()
+        
+        conn.close()
+        
+        if result:
+            return {
+                "user_id": result[0],
+                "email": result[1],
+                "user_level": result[2],
+                "created_at": result[3],
+                "username": result[4],
+                "roles": result[5]
+            }
+        return None
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
+        """Get user information by email."""
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT user_id, email, user_level, created_at 
+        FROM users 
+        WHERE email = ?
+        ''', (email,))
+        result = cursor.fetchone()
+        
+        conn.close()
+        
+        if result:
+            return {
+                "user_id": result[0],
+                "email": result[1],
+                "user_level": result[2],
+                "created_at": result[3]
+            }
         return None
 
     def get_user_level(self, user_id: str) -> str:
@@ -216,29 +266,6 @@ class ChatDatabase:
         
         conn.close()
         return exists
-
-    def get_user_by_email(self, email: str) -> Optional[Dict]:
-        """Get user information by email."""
-        conn = self.create_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT user_id, email, user_level, created_at 
-        FROM users 
-        WHERE email = ?
-        ''', (email,))
-        result = cursor.fetchone()
-        
-        conn.close()
-        
-        if result:
-            return {
-                "user_id": result[0],
-                "email": result[1],
-                "user_level": result[2],
-                "created_at": result[3]
-            }
-        return None
     
     def update_user_level(self, user_id: str, new_level: str) -> bool:
         """

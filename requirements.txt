@@ -3,7 +3,6 @@ openai
 langchain-core
 langchain
 langchain-openai
-langchain-astradb>=0.3.3
 sentence-transformers
 langchain-ollama
 langchain-milvus

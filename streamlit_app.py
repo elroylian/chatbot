@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CHATBOT_VERSION = "2.0.0"
+CHATBOT_VERSION = "2.0.1"
 DB_FILENAME = "chat.db"
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
@@ -73,10 +73,21 @@ def get_database():
 
 db = get_database()
 
+cookie_session_available = authenticator.cookie_controller.get_cookie()
+
+if(cookie_session_available):
+    st.session_state["authentication_status"] = True
+    user_data = db.get_user_by_username(cookie_session_available["username"])
+    roles = json.loads(user_data["roles"])
+    print("Roles: ",roles)
+    st.session_state["roles"] = roles["roles"]
+    st.session_state["email"] = user_data["email"]
+    print("Cookie Exists: ",cookie_session_available)
+
 def clear_session():
     # Reset chat history when user logs out
     logger.info("Clearing session variables")
-    session_vars = ["messages", "llm_chat_history", "user_level"]
+    session_vars = ["messages", "llm_chat_history", "user_level", "user_topics"]
     for var in session_vars:
         if var in st.session_state:
             del st.session_state[var]
@@ -86,11 +97,18 @@ def clear_session():
 def auth_page():
     clear_session()
     
+    st.title("🔒 Login and Registration")
+    
     # Create tabs for login and registration
     tab1, tab2 = st.tabs(["Login", "Register"])
 
     # Login Tab
-    with tab1:            
+    with tab1:
+        if st.session_state["authentication_status"] is False:
+            st.error('Username/password is incorrect')
+        elif st.session_state["authentication_status"] is None:
+            st.warning('Please enter your username and password')
+                    
         # Creating a login widget
         try:
             authenticator.login('main')
@@ -98,10 +116,7 @@ def auth_page():
         except LoginError as e:
             st.error(e)
         
-        if st.session_state["authentication_status"] is False:
-            st.error('Username/password is incorrect')
-        elif st.session_state["authentication_status"] is None:
-            st.warning('Please enter your username and password')
+        
 
     # Registration Tab
     with tab2:
@@ -109,10 +124,11 @@ def auth_page():
         try:
             (email_of_registered_user,
             username_of_registered_user,
-            name_of_registered_user) = authenticator.register_user(roles=["user"])
+            _
+            ) = authenticator.register_user(roles=["user"])
             if email_of_registered_user:
                 generated_id = db.generate_user_id()
-                db.save_user_data(generated_id, "", email_of_registered_user)
+                db.save_user_data(generated_id, "", email_of_registered_user, username_of_registered_user, roles='{"roles":["user","tester"]}')
                 
                 # Saving config file
                 with open('config.yaml', 'w', encoding='utf-8') as file:
@@ -130,7 +146,10 @@ def chatbot_page():
     st.sidebar.divider()
     st.sidebar.text(f"Welcome, {st.session_state['name']}")
     st.sidebar.write("Your account")
-    authenticator.logout('Logout','sidebar')
+    
+    authenticator.login('unrendered',clear_on_submit=True)
+    if st.session_state.get('authentication_status'):
+        authenticator.logout('Logout','sidebar',key='main',callback=clear_session())
     
     
     # Initialize session variables
@@ -141,6 +160,7 @@ def chatbot_page():
         st.session_state["user_id"] = ""
     
     
+    print(f'your role is {st.session_state["roles"]}')
     # Load user info from the database
     if user_info := db.get_user_by_email(st.session_state['email']):
         
@@ -236,20 +256,13 @@ def chatbot_page():
                         st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
                             
     def tester_function():
-        if "tester" in st.session_state['roles']:
+        if "tester" in st.session_state["roles"]:
             st.sidebar.text("Debug Options (!!!):")
             st.write(db.get_user_by_email(st.session_state['email']))
             if st.button("Reset User Level", type='primary'):
                 db.save_user_data(user_info["user_id"], "", st.session_state['email'])
                 st.session_state["user_level"] = ""
                 st.success("User level reset successfully.")
-    
-    if "user_topics" in st.session_state and st.session_state["user_topics"]:
-        st.sidebar.markdown("### Topics Covered")
-        for parent_topic, subtopics in st.session_state["user_topics"].items():
-            st.sidebar.markdown(f"**{parent_topic.capitalize()}**")
-            for subtopic in subtopics:
-                st.sidebar.write(f"- {subtopic}")
 
     with st.sidebar:
         tester_function()
@@ -519,11 +532,11 @@ def topics():
     else:
         st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
 
-if st.session_state["authentication_status"] in [None,False] :
+if st.session_state["authentication_status"] in [None,False] or cookie_session_available is None:
+# if st.session_state["authentication_status"] in [None,False]:
     auth_page()
     
 else:
-
     page_names_to_funcs = {
     "Chatbot": chatbot_page,
     "Topics": topics,
