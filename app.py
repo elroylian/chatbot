@@ -1,7 +1,14 @@
+"""
+
+
+
+"""
+
+import logging
 import yaml
 import streamlit as st
 from yaml.loader import SafeLoader
-from model import llm_selected
+from utils.model import get_llm
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from utils.chunk_doc import get_retriever
 from utils.document_processing import process_image, process_pdf
@@ -13,9 +20,24 @@ import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import (LoginError, RegisterError,)
 from utils.db_connection import ChatDatabase
 from langchain_core.messages import HumanMessage
-from utils.level_manager import should_analyze_user_level, get_next_level, get_previous_level
+from utils.level_manager import should_analyze_user_level
 
-CHATBOT_VERSION = "2.0.0"
+## TO DO
+# Test promoting and demoting users
+# Analysis should only be done after initial assessment
+# Analysis should be done when user 'Clear History'
+# Check topics page when user reloads page after closing (???)
+# See if there is a way to update state in the graph
+
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+CHATBOT_VERSION = "2.0.1"
 DB_FILENAME = "chat.db"
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
@@ -42,17 +64,14 @@ from test_templates.document_text_template import document_text_workflow
 from test_templates.text_template import text_workflow
 from utils.analyser import analyser_workflow
 
-langgraph_config = {"configurable": {"thread_id": "1"}}
-
 initial_graph = workflow.compile(checkpointer=memory)
 document_text_graph = document_text_workflow.compile(memory)
 text_graph = text_workflow.compile(memory)
 analyser_graph = analyser_workflow.compile()
 
-print("Initialising the app...\n")
 ##########################################
 # Initialize the LLM
-llm = llm_selected
+llm = get_llm()
 
 # Initialize the database manager
 @st.cache_resource
@@ -61,24 +80,45 @@ def get_database():
 
 db = get_database()
 
+cookie_session_available = authenticator.cookie_controller.get_cookie()
+
+if(cookie_session_available):
+    st.session_state["authentication_status"] = True
+    user_data = db.get_user_by_username(cookie_session_available["username"])
+    roles = json.loads(user_data["roles"])
+    st.session_state["roles"] = roles["roles"]
+    st.session_state["email"] = user_data["email"]
+    st.session_state["username"] = user_data["username"]
+
 def clear_session():
     # Reset chat history when user logs out
-    print("Clearing session variables")
-    session_vars = ["messages", "llm_chat_history", "user_level"]
+    logger.info("Clearing session variables")
+    session_vars = ["messages", "llm_chat_history", "user_level", "user_topics"]
     for var in session_vars:
         if var in st.session_state:
-            del st.session_state[var]
+            del st.session_state[var]   
 
-        
+def reset_all_graph_states(config):
+    empty_messages = []
+    initial_graph.update_state(values={"messages": empty_messages}, config=config)
+    document_text_graph.update_state(values={"messages": empty_messages}, config=config)
+    text_graph.update_state(values={"messages": empty_messages}, config=config)
 
 def auth_page():
     clear_session()
+    
+    st.title("🔒 Login and Registration")
     
     # Create tabs for login and registration
     tab1, tab2 = st.tabs(["Login", "Register"])
 
     # Login Tab
-    with tab1:            
+    with tab1:
+        if st.session_state["authentication_status"] is False:
+            st.error('Username/password is incorrect')
+        elif st.session_state["authentication_status"] is None:
+            st.warning('Please enter your username and password')
+                    
         # Creating a login widget
         try:
             authenticator.login('main')
@@ -86,10 +126,7 @@ def auth_page():
         except LoginError as e:
             st.error(e)
         
-        if st.session_state["authentication_status"] is False:
-            st.error('Username/password is incorrect')
-        elif st.session_state["authentication_status"] is None:
-            st.warning('Please enter your username and password')
+        
 
     # Registration Tab
     with tab2:
@@ -97,10 +134,11 @@ def auth_page():
         try:
             (email_of_registered_user,
             username_of_registered_user,
-            name_of_registered_user) = authenticator.register_user(roles=["user"])
+            _
+            ) = authenticator.register_user(roles=["user"])
             if email_of_registered_user:
                 generated_id = db.generate_user_id()
-                db.save_user_data(generated_id, "", email_of_registered_user)
+                db.save_user_data(generated_id, "", email_of_registered_user, username_of_registered_user, roles='{"roles":["user","tester"]}')
                 
                 # Saving config file
                 with open('config.yaml', 'w', encoding='utf-8') as file:
@@ -114,10 +152,15 @@ def auth_page():
 
 def chatbot_page():
     st.title("💬DSA Chatbot")
+    st.sidebar.text(f"Version: {CHATBOT_VERSION}" )
+    st.sidebar.divider()
+    st.sidebar.text(f"Welcome, {st.session_state['username']}!")
+    st.sidebar.write("Your account")
     
-    st.sidebar.write("Welcome, ",st.session_state['name'])
-    authenticator.logout('Logout','sidebar')
-    st.sidebar.write("Version:", CHATBOT_VERSION)
+    authenticator.login('unrendered',clear_on_submit=True)
+    if st.session_state.get('authentication_status'):
+        authenticator.logout('Logout','sidebar',key='main',callback=clear_session())
+    
     
     # Initialize session variables
     if "messages" not in st.session_state:
@@ -125,7 +168,6 @@ def chatbot_page():
         
     if "user_id" not in st.session_state:
         st.session_state["user_id"] = ""
-    
     
     # Load user info from the database
     if user_info := db.get_user_by_email(st.session_state['email']):
@@ -141,18 +183,22 @@ def chatbot_page():
         chat_id = f"{user_info['user_id']}_1"
         chat_history = db.load_chat_history(user_info['user_id'], chat_id)
         
+        # Initialize the language graph configuration
+        langgraph_config = {"configurable": {"thread_id": user_id}}
+        
         # If chat history exists, load it into the messages list
         if chat_history:
-            print("Loading Chat History...\n")
             if st.session_state["messages"] == []:
-                print("Appending Chat History...\n")
                 for message in chat_history:
                     if message["role"] == "user":
                         st.session_state["messages"].append(HumanMessage(content=message["content"]))
                     else:
                         st.session_state["messages"].append(AIMessage(content=message["content"]))
                 
+                text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                document_text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                 initial_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                
         
         llm_chat_history = st.session_state["messages"]
         
@@ -166,26 +212,20 @@ def chatbot_page():
     else:
         st.error("User not found in the database.")
         st.stop()
-        
-    try:
-        retriever = get_retriever()
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
-        clear_session()
-        st.stop()
     
     # Add sidebar options
-    st.sidebar.title("Options")
+    st.sidebar.write("Options")
     
     # Clear chat history
-    if st.sidebar.button("Clear Chat History"):
+    if st.sidebar.button("Clear Chat History",type='primary'):
         # st.session_state["llm_chat_history"] = []
         st.session_state["messages"] = []
         
-        updated_messages = []
-        initial_graph.update_state(values = {"messages": updated_messages}, config = langgraph_config)
+        # Reset all graph states
+        reset_all_graph_states(langgraph_config)
+        
         db.clear_chat_history(user_id, chat_id)
-        st.toast("Chat history cleared successfully.")
+        st.toast("Chat history cleared successfully.",icon="✅")
 
     # Add file uploader to sidebar based on user assessment status
     if st.session_state["user_level"] in ["", "null", None]:
@@ -195,7 +235,6 @@ def chatbot_page():
             st.session_state["uploader_key"] = 0
         
         def update_key():
-            print("UPDATING KEY\n")
             st.session_state["uploader_key"] += 1
         
         uploaded_files = st.sidebar.file_uploader("Upload Files", 
@@ -221,7 +260,7 @@ def chatbot_page():
                             base64_image, processed_image = process_image(uploaded_file)
                             st.sidebar.image(processed_image, caption="Processed Image")
                             processed_images.append(base64_image)
-                            st.toast("Image uploaded successfully.")
+                            st.toast("Image uploaded successfully.",icon="✅")
                             
                         elif uploaded_file.type == 'application/pdf':
                             pdf_documents = process_pdf(uploaded_file)
@@ -232,20 +271,13 @@ def chatbot_page():
                         st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
                             
     def tester_function():
-        if "tester" in st.session_state['roles']:
-            st.title("Extra Options:")
+        if "tester" in st.session_state["roles"]:
+            st.sidebar.text("Debug Options (!!!):")
             st.write(db.get_user_by_email(st.session_state['email']))
             if st.button("Reset User Level", type='primary'):
-                db.save_user_data(user_info["user_id"], "", st.session_state['email'])
+                db.update_user_data(user_info["user_id"], "", st.session_state['email'])
                 st.session_state["user_level"] = ""
                 st.success("User level reset successfully.")
-    
-    if "user_topics" in st.session_state and st.session_state["user_topics"]:
-        st.sidebar.markdown("### Topics Covered")
-        for parent_topic, subtopics in st.session_state["user_topics"].items():
-            st.sidebar.markdown(f"**{parent_topic.capitalize()}**")
-            for subtopic in subtopics:
-                st.sidebar.write(f"- {subtopic}")
 
     with st.sidebar:
         tester_function()
@@ -277,7 +309,7 @@ def chatbot_page():
             if st.session_state["user_level"].lower() not in ["beginner", "intermediate", "advanced"]:
                 
                 # New user needs assessment
-                print("RAN INITIAL ASSESSMENT CHAIN\n")
+                logger.info("Running INITIAL ASSESSMENT CHAIN\n")
                 
                 with st.spinner("Analysing your experience level..."):
                     input_dict = {
@@ -287,7 +319,6 @@ def chatbot_page():
                 output = initial_graph.invoke(input_dict, langgraph_config)
                 
                 response = output["messages"][-1].content
-                print("this is the response:\n",response)
                 
                 if "{" in response and "}" in response:
                     try:
@@ -297,7 +328,7 @@ def chatbot_page():
 
                         # Extract necessary fields
                         user_level = data.get("data").get("user_level")
-                        db.save_user_data(user_id, user_level,user_email)
+                        db.update_user_data(user_id, user_level,user_email)
 
                         # Extract message from LLM
                         message = data.get("message")
@@ -313,14 +344,17 @@ def chatbot_page():
                         
                         # Validate that necessary information is available
                         if user_level:
-                            print("###############!!! User level is: ", user_level)
+                            logger.info(f"User level determined: {user_level}")
                             st.session_state["user_level"] = user_level
                             
                             # Keep only the last assessment message
                             st.session_state["messages"] = [AIMessage(content=full_response)]
                             
                             # Clear assessment chat
+                            text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                            document_text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                             initial_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                            
                             db.clear_chat_history(user_id, chat_id)
                             db.save_message(user_id, chat_id, "assistant", full_response)
                             
@@ -329,12 +363,9 @@ def chatbot_page():
                             
 
                     except json.JSONDecodeError:
-                        print(response)
-                        print("Oops! I broke. Sorry about that!")
+                        logger.error("Error parsing JSON response")
                 else:
-                    print("Oops! I broke. Sorry about that! JSON FAILED")
-                    st.write(response)
-                    # st.session_state.messages.append({"role": "assistant", "content": response})
+                    logger.error("No JSON data found in response")
                     st.session_state.messages.append(AIMessage(content=response))
                     # Append and save assistant's message
                     db.save_message(user_id, chat_id, "assistant", response)
@@ -344,7 +375,7 @@ def chatbot_page():
                 with st.spinner("Thinking..."):                        
                     # Check if the user input contains any document (images or text from PDFs)
                     if processed_images or processed_text:
-                        print("PROCESSING DOCUMENT QUERY\n\n")
+                        logger.info("Processing Document/Text Query")
 
                         # Format content with text and images
                         content = [{"type": "text", "text": prompt}]
@@ -402,7 +433,7 @@ def chatbot_page():
                         processed_text = []
                         st.rerun()
                     else:
-                        print("PROCESSING NON-DOCUMENT QUERY\n")
+                        logger.info("Processing Text Query")
                         
                         # Process the user input
 
@@ -421,7 +452,7 @@ def chatbot_page():
     
         # After processing the user input and getting a response
         # Check if we should run level analysis
-        if should_analyze_user_level(user_id):
+        if should_analyze_user_level(user_id) and st.session_state["user_level"] not in ["", "null", None]:
             with st.spinner("Assessing your progress..."):
                 # Run the analyzer
                 previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
@@ -462,30 +493,27 @@ def chatbot_page():
                     db.update_analysis_timestamp(user_id)
                     
                     # # Save user level and topics
-                    db.save_user_data(user_id, user_level, user_email)
+                    db.update_user_data(user_id, user_level, user_email)
                     db.update_user_topics(user_id, topics)
                     
                 except (json.JSONDecodeError, KeyError) as e:
-                    print(f"Error processing analysis result: {e}")
+                    logger.error(f"Error processing analysis result: {e}")
 
 def topics():
     st.title("📚 Topics You've Learned")
 
     # Ensure the user is logged in and has a user_id in session state
-    if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
+    if st.session_state["authentication_status"] in [None,False]:
         st.error("User not logged in. Please log in to view your topics.")
         st.stop()
 
     user_id = st.session_state["user_id"]
     
-    # Initialize the database (adjust the DB path if needed)
-    db = ChatDatabase("chat.db")
-    
     # Retrieve topics from the database using the get_user_topics() function
     topics = db.get_user_topics(user_id)  # Expected to return a dict {parent_topic: [subtopics]}
     topics = json.loads(topics) if topics else {}
     
-    if topics:
+    if topics != "{}":
         # Sidebar elements: filter and overview metric
         st.sidebar.header("Filter Topics")
         parent_topics = list(topics.keys())
@@ -516,14 +544,15 @@ def topics():
         # Sidebar metric: Total number of subtopics learned
         total_subtopics = sum(len(subs) for subs in topics.values())
         st.sidebar.metric("Total Subtopics Learned", total_subtopics)
+        
     else:
         st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
 
-if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
+if st.session_state["authentication_status"] in [None,False] or cookie_session_available is None:
+# if st.session_state["authentication_status"] in [None,False]:
     auth_page()
     
 else:
-
     page_names_to_funcs = {
     "Chatbot": chatbot_page,
     "Topics": topics,

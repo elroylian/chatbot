@@ -1,3 +1,7 @@
+"""
+Main Streamlit application file for the DSA Chatbot.
+"""
+
 import logging
 import yaml
 import streamlit as st
@@ -20,8 +24,7 @@ from utils.level_manager import should_analyze_user_level
 # Test promoting and demoting users
 # Analysis should only be done after initial assessment
 # Analysis should be done when user 'Clear History'
-# Check topics page when user reloads page after closing (???)
-# See if there is a way to update state in the graph
+# Error Handling ensure db does not save user message if there is an error in the response
 
 
 # Configure logging
@@ -58,9 +61,6 @@ from test_templates.document_text_template import document_text_workflow
 from test_templates.text_template import text_workflow
 from utils.analyser import analyser_workflow
 
-initial_graph = workflow.compile(checkpointer=memory)
-document_text_graph = document_text_workflow.compile(memory)
-text_graph = text_workflow.compile(memory)
 analyser_graph = analyser_workflow.compile()
 
 ##########################################
@@ -91,12 +91,6 @@ def clear_session():
     for var in session_vars:
         if var in st.session_state:
             del st.session_state[var]   
-
-def reset_all_graph_states(config):
-    empty_messages = []
-    initial_graph.update_state(values={"messages": empty_messages}, config=config)
-    document_text_graph.update_state(values={"messages": empty_messages}, config=config)
-    text_graph.update_state(values={"messages": empty_messages}, config=config)
 
 def auth_page():
     clear_session()
@@ -152,6 +146,9 @@ def chatbot_page():
     st.sidebar.write("Your account")
     
     authenticator.login('unrendered',clear_on_submit=True)
+    
+    current_graph = workflow.compile(memory)
+    
     if st.session_state.get('authentication_status'):
         authenticator.logout('Logout','sidebar',key='main',callback=clear_session())
     
@@ -189,9 +186,7 @@ def chatbot_page():
                     else:
                         st.session_state["messages"].append(AIMessage(content=message["content"]))
                 
-                text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
-                document_text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
-                initial_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                 
         
         llm_chat_history = st.session_state["messages"]
@@ -216,7 +211,7 @@ def chatbot_page():
         st.session_state["messages"] = []
         
         # Reset all graph states
-        reset_all_graph_states(langgraph_config)
+        current_graph.update_state(values = {"messages": []}, config = langgraph_config)
         
         db.clear_chat_history(user_id, chat_id)
         st.toast("Chat history cleared successfully.",icon="✅")
@@ -309,8 +304,10 @@ def chatbot_page():
                     input_dict = {
                         "messages": [HumanMessage(prompt)],
                     }
-                    
-                output = initial_graph.invoke(input_dict, langgraph_config)
+                
+                current_graph = workflow.compile(memory)
+                current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                output = current_graph.invoke(input_dict, langgraph_config)
                 
                 response = output["messages"][-1].content
                 
@@ -345,9 +342,7 @@ def chatbot_page():
                             st.session_state["messages"] = [AIMessage(content=full_response)]
                             
                             # Clear assessment chat
-                            text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
-                            document_text_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
-                            initial_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                            current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                             
                             db.clear_chat_history(user_id, chat_id)
                             db.save_message(user_id, chat_id, "assistant", full_response)
@@ -366,7 +361,7 @@ def chatbot_page():
 
             else:
             
-                with st.spinner("Thinking..."):                        
+                with st.spinner("Thinking...",show_time=True):                        
                     # Check if the user input contains any document (images or text from PDFs)
                     if processed_images or processed_text:
                         logger.info("Processing Document/Text Query")
@@ -404,7 +399,9 @@ def chatbot_page():
                         }
                         
                         # Run the workflow
-                        response = document_text_graph.invoke(state, langgraph_config)
+                        current_graph = document_text_workflow.compile(memory)
+                        current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                        response = current_graph.invoke(state, langgraph_config)
                         
                         # Get the final message and handle response
                         final_message = response["messages"][-1].content
@@ -413,11 +410,6 @@ def chatbot_page():
                         
                         # Save to database and update histories
                         db.save_message(user_id, chat_id, "assistant", full_response)
-                        # llm_chat_history.extend([
-                        #     HumanMessage(content=prompt),
-                        #     AIMessage(content=full_response),
-                        # ])
-                        # st.session_state.messages.append({"role": "assistant", "content": full_response})
                         st.session_state.messages.append(AIMessage(content=full_response))
 
                         # Clear the uploaded files after processing
@@ -435,7 +427,10 @@ def chatbot_page():
                             "messages": [HumanMessage(prompt)],
                             "user_level": user_level
                         }
-                        output = text_graph.invoke(inputs, langgraph_config)
+                        
+                        current_graph = text_workflow.compile(memory)
+                        current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                        output = current_graph.invoke(inputs, langgraph_config)
                         response = output["messages"][-1].content
                         
                         st.session_state.messages.append(AIMessage(content=response))
