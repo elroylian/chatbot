@@ -6,16 +6,15 @@ in Data Structures and Algorithms, tracking topics covered and providing level r
 """
 
 import logging
+import json
+import re
 from typing import Annotated, Sequence, Dict, Any, List
 from typing_extensions import TypedDict
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from langgraph.graph.message import add_messages
 from langgraph.graph import END, StateGraph, START
 import streamlit as st
-import json
 from utils.model import get_llm
 
 # Configure logging
@@ -25,16 +24,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Constants
+# Confidence threshold to determine whether to trust the LLM output
 CONFIDENCE_THRESHOLD = 0.8
 
 class AgentState(TypedDict):
     """State management for level assessment"""
     messages: Annotated[Sequence[BaseMessage], add_messages]
     user_level: str
-    previous_topics: Dict[str, List[str]] = {}
+    previous_topics: Dict[str, List[str]]  # Previously covered topics
 
-# Keep this model for compatibility, but we'll use a simpler approach
+# Model for expected output (for documentation purposes)
 class LevelAssessment(BaseModel):
     current_level: str = Field(description="User's current level")
     recommendation: str = Field(description="Promote/Maintain/Demote")
@@ -43,8 +42,39 @@ class LevelAssessment(BaseModel):
     reasoning: List[str] = Field(description="Reasons for recommendation")
     topics: Dict[str, List[str]] = Field(description="Hierarchical topics; keys are parent topics and values are lists of subtopics")
 
+def extract_json(response_text: str) -> Dict[str, Any]:
+    """
+    Extract valid JSON from the LLM response.
+    
+    Args:
+        response_text: Raw text returned by the LLM.
+    
+    Returns:
+        A dictionary parsed from the JSON in the response.
+        
+    Raises:
+        ValueError: If no valid JSON is found.
+    """
+    # Remove markdown formatting if present
+    cleaned_text = response_text.replace('```json', '').replace('```', '')
+    json_match = re.search(r'\{.*\}', cleaned_text, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(0))
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decoding error: {e}")
+    raise ValueError("Failed to extract valid JSON from response.")
+
 def format_conversation_context(messages: List[BaseMessage]) -> str:
-    """Format conversation context from messages"""
+    """
+    Format conversation context from messages.
+    
+    Args:
+        messages: A list of conversation messages.
+        
+    Returns:
+        A formatted string representing the conversation.
+    """
     return "\n".join([
         f"{'User: ' if isinstance(m, HumanMessage) else 'Assistant: '}{m.content}"
         for m in messages
@@ -52,13 +82,13 @@ def format_conversation_context(messages: List[BaseMessage]) -> str:
 
 def analyze_user_level(state: AgentState) -> Dict[str, Any]:
     """
-    Analyze conversation to assess user's DSA level and extract topics covered.
+    Analyze conversation to assess the user's DSA level and extract topics covered.
     
     Args:
-        state: Current state containing messages, user level, and previously covered topics
+        state: Current state containing messages, user level, and previously covered topics.
         
     Returns:
-        Updated state with assessment results
+        Updated state with assessment results packaged in an AIMessage.
     """
     logger.info("Analyzing user level and topics")
     
@@ -66,11 +96,11 @@ def analyze_user_level(state: AgentState) -> Dict[str, Any]:
     user_level = state["user_level"]
     previous_topics = state.get("previous_topics", {})
     
-    # Format conversation context for prompt
+    # Format the conversation context to include in the prompt
     conversation_context = format_conversation_context(messages)
     
-    # Create a simple direct prompt for assessment
-    assessment_prompt = f"""Assess the user's learning progression in Data Structures and Algorithms (DSA) based solely on the following conversation and previously covered topics. Do not infer or add topics that were not explicitly mentioned in this conversation or in the previous analysis.
+    # Construct the assessment prompt with detailed evaluation steps
+    assessment_prompt = f"""Assess the user's learning progression in Data Structures and Algorithms (DSA) based solely on the following conversation and previously covered topics. Do not infer or add topics that were not explicitly mentioned.
 
 Current Level: {user_level}
 
@@ -131,103 +161,71 @@ Your response should be ONLY the valid JSON with nothing else.
     try:
         llm = get_llm()
         response = llm.invoke([HumanMessage(content=assessment_prompt)])
+        raw_content = response.content.strip()
         
-        # Extract JSON from the response
-        content = response.content.strip()
-        
-        # Handle potential formatting issues
+        # Attempt to extract and parse JSON from the response
         try:
-            # Clean the response if needed
-            if not content.startswith("{"):
-                # Try to extract JSON if it's wrapped in text
-                import re
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    content = json_match.group(0)
-            
-            # Remove any markdown formatting
-            content = content.replace('```json', '').replace('```', '')
-            
-            # Parse the JSON
-            assessment_data = json.loads(content)
-            
-            # Extract key information
+            assessment_data = extract_json(raw_content)
             current_level = assessment_data.get("current_level", user_level)
             recommendation = assessment_data.get("recommendation", "Maintain")
             confidence = float(assessment_data.get("confidence", 0.0))
             topics = assessment_data.get("topics", {})
-            
-            # Log the assessment
+
             logger.info(f"Assessment: Level={current_level}, Recommendation={recommendation}, Confidence={confidence:.2f}")
             logger.info(f"Topics identified: {topics}")
-            
-            # Check confidence threshold
+
+            # If the confidence is below the threshold, default to maintaining the current level
             if confidence < CONFIDENCE_THRESHOLD:
                 logger.warning(f"Low confidence in level assessment: {confidence:.2f}")
+                fallback_data = {
+                    "current_level": current_level,
+                    "recommendation": "Maintain",
+                    "confidence": confidence,
+                    "topics": topics
+                }
                 return {
-                    "messages": [
-                        AIMessage(content=json.dumps({
-                            "current_level": current_level,
-                            "recommendation": "Maintain",  # Default to maintain on low confidence
-                            "confidence": confidence,
-                            "topics": topics
-                        }))
-                    ]
+                    "messages": [AIMessage(content=json.dumps(fallback_data))]
                 }
             
-            # Return the full assessment
             return {
-                "messages": [
-                    AIMessage(content=json.dumps(assessment_data))
-                ]
+                "messages": [AIMessage(content=json.dumps(assessment_data))]
             }
             
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Error parsing assessment response: {str(e)}")
-            logger.debug(f"Raw content: {content}")
-            
-            # Return a fallback assessment on error
+        except ValueError as parse_error:
+            logger.error(f"Error parsing assessment response: {parse_error}")
+            fallback_data = {
+                "current_level": user_level,
+                "recommendation": "Maintain",
+                "confidence": 0.0,
+                "evidence": ["Assessment error"],
+                "reasoning": ["Error in assessment process"],
+                "topics": {}
+            }
             return {
-                "messages": [
-                    AIMessage(content=json.dumps({
-                        "current_level": user_level,
-                        "recommendation": "Maintain",
-                        "confidence": 0.0,
-                        "evidence": ["Assessment error"],
-                        "reasoning": ["Error in assessment process"],
-                        "topics": {}
-                    }))
-                ]
+                "messages": [AIMessage(content=json.dumps(fallback_data))]
             }
         
     except Exception as e:
         logger.error(f"Error in analyze_user_level: {str(e)}", exc_info=True)
-        
-        # Return error message
+        fallback_data = {
+            "current_level": user_level,
+            "recommendation": "Maintain",
+            "confidence": 0.0,
+            "evidence": ["System error"],
+            "reasoning": ["Error during analysis"],
+            "topics": {}
+        }
         return {
-            "messages": [
-                AIMessage(content=json.dumps({
-                    "current_level": user_level,
-                    "recommendation": "Maintain",
-                    "confidence": 0.0,
-                    "evidence": ["System error"],
-                    "reasoning": ["Error during analysis"],
-                    "topics": {}
-                }))
-            ]
+            "messages": [AIMessage(content=json.dumps(fallback_data))]
         }
 
-# Graph setup
-def create_analyser_workflow():
-    """Create the analyzer workflow graph"""
+def create_analyser_workflow() -> StateGraph:
+    """Create the analyzer workflow graph."""
     logger.info("Setting up analyzer workflow graph")
-    
     workflow = StateGraph(AgentState)
     workflow.add_node("analyze", analyze_user_level)
     workflow.add_edge(START, "analyze")
     workflow.add_edge("analyze", END)
-    
     return workflow
-
 
 analyser_workflow = create_analyser_workflow()

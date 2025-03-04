@@ -18,7 +18,7 @@ import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import (LoginError, RegisterError,)
 from utils.db_connection import ChatDatabase
 from langchain_core.messages import HumanMessage
-from utils.level_manager import should_analyze_user_level
+from utils.level_manager import should_analyze_user_level, get_next_level, get_previous_level
 
 ## TO DO
 # Test promoting and demoting users
@@ -442,7 +442,7 @@ def chatbot_page():
         # After processing the user input and getting a response
         # Check if we should run level analysis
         if should_analyze_user_level(user_id) and st.session_state["user_level"] not in ["", "null", None]:
-            with st.spinner("Assessing your progress..."):
+            with st.spinner("Assessing your progress...",show_time=True):
                 # Run the analyzer
                 previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
 
@@ -464,25 +464,24 @@ def chatbot_page():
                     user_level = analysis_data.get("current_level")
                     topics = analysis_data.get("topics", {})
                     
-                    # if analysis_data["recommendation"] == "Promote" and analysis_data["confidence"] >= 0.8:
-                    #     # Map levels (assuming you have a mapping function)
-                    #     new_level = get_next_level(user_level)
-                    #     db.update_user_level(user_id, new_level)
-                    #     st.session_state["user_level"] = new_level
-                    #     st.success(f"Congratulations! You've been promoted to {new_level} level.")
+                    if analysis_data["recommendation"] == "Promote" and analysis_data["confidence"] >= 0.8:
+                        # Map levels (assuming you have a mapping function)
+                        new_level = get_next_level(user_level)
+                        db.update_user_level(user_id, new_level)
+                        st.session_state["user_level"] = new_level
+                        st.success(f"Congratulations! You've been promoted to {new_level} level.")
                     
-                    # elif analysis_data["recommendation"] == "Demote" and analysis_data["confidence"] >= 0.9:
-                    #     # Higher confidence threshold for demotion
-                    #     new_level = get_previous_level(user_level)
-                    #     db.update_user_level(user_id, new_level)
-                    #     st.session_state["user_level"] = new_level
-                    #     st.info(f"Your level has been adjusted to {new_level}.")
+                    elif analysis_data["recommendation"] == "Demote" and analysis_data["confidence"] >= 0.9:
+                        # Higher confidence threshold for demotion
+                        new_level = get_previous_level(user_level)
+                        db.update_user_level(user_id, new_level)
+                        st.session_state["user_level"] = new_level
+                        st.info(f"Your level has been adjusted to {new_level}.")
                     
                     # Update the timestamp regardless of outcome
                     db.update_analysis_timestamp(user_id)
                     
-                    # # Save user level and topics
-                    db.update_user_data(user_id, user_level, user_email)
+                    # Save topics
                     db.update_user_topics(user_id, topics)
                     
                 except (json.JSONDecodeError, KeyError) as e:

@@ -14,7 +14,6 @@ from langchain.tools.retriever import create_retriever_tool
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, field_validator
 from langgraph.prebuilt import ToolNode, tools_condition 
 from langgraph.graph.message import add_messages
@@ -119,28 +118,28 @@ TRANSFORMATION RULES:
 Your response should be ONLY the clarified question with no additional explanation.
 """
 
-RETRIEVAL_PROMPT = """You are a DSA expert assistant specializing in both Data Structures and Algorithms. For every question:
+RETRIEVAL_PROMPT = """You are a knowledgeable DSA expert assistant specializing in Data Structures and Algorithms. Your responses must be accurate, clear, and tailored to the user's expertise (beginner, intermediate, or advanced). For every question, follow these steps:
 
-1. First, assess if you need additional reference information:
-   - Do you need specific implementation details for a data structure or algorithm?
-   - Do you need exact complexity analysis or algorithmic proofs?
-   - Do you need specific examples or edge cases?
-   - Do you need detailed comparison between different algorithms or data structures?
+1. **Assess Information Needs**  
+   - Determine if additional reference details are required, such as:
+     - Specific implementation examples or pseudocode.
+     - Detailed time/space complexity analysis or proofs.
+     - Concrete examples or edge cases.
+     - Comparisons between alternative algorithms or data structures.
 
-2. Based on the assessment:
-   - Use the retrieve_documents tool if you need specific details
-   - Base your answer on the retrieved information when used
-   - Provide direct answers when appropriate
+2. **Utilize Resources Effectively**  
+   - If specific details are needed, use the `retrieve_documents` tool to fetch relevant information.
+   - Integrate the retrieved information to enhance the accuracy and clarity of your answer.
+   - Provide a direct answer when additional references are unnecessary.
 
-3. Response guidelines:
-   - Be clear and concise
-   - Focus on accuracy and completeness
-   - Provide examples when helpful
-   - Use appropriate technical depth for the user's level
-   - Balance explanations between theoretical concepts and practical implementations
-   - For algorithms, always discuss time and space complexity
+3. **Response Guidelines**  
+   - Be clear, concise, and focused on accuracy.
+   - Use language appropriate to the user’s level, avoiding unnecessary jargon for beginners.
+   - Include examples, code snippets, or pseudocode when they aid understanding.
+   - Balance theoretical concepts with practical implementation details.
+   - Always discuss time and space complexity for algorithm-related questions.
 
-Remember: Always prioritize providing accurate and helpful information on both data structures and algorithms."""
+Remember: Your top priority is to deliver precise, helpful, and context-aware DSA explanations that empower users to understand and solve problems effectively."""
 
 DOCUMENT_GRADING_PROMPT = """You are a DSA expert grading retrieved content for both Data Structures and Algorithms topics.
 <Question>
