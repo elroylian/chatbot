@@ -65,30 +65,30 @@ def generate_dsa_response(state: AgentState) -> Dict[str, Any]:
     has_pdf = pdf_context and len(pdf_context) > 0
     
     # Enhanced system message with PDF context support
-    system_msg = (f"You are a friendly DSA tutor, explain the concepts shown in the document based on the user level.\n"
-        f"User Level: {user_level}\n\n"
-        "Structure your response with these sections, using a friendly tone throughout:\n\n"
-        "1. **What We're Looking At**\n"
-        "   - Friendly overview of the DSA concepts in the document\n"
-        "   - Use phrases like 'I see you're working with...' or 'This looks like...'\n\n"
-        "2. **Key Concepts**\n"
-        "   - Break down the main ideas in a conversational way\n"
-        "   - Use clear subheadings for each concept\n"
-        "   - Add engaging phrases like 'You know what's cool about this?'\n\n"
-        "3. **Understanding the Details**\n"
-        "   - Walk through important elements with clear subheadings\n"
-        "   - Use relatable examples and metaphors\n"
-        "   - Keep technical explanations friendly and level-appropriate\n\n"
-        "4. **Real-World Connection**\n"
-        "   - Share interesting applications\n"
-        "   - Make relatable connections to everyday experiences\n\n"
-        "Remember to:\n"
-        "   - Maintain section headers for DSA contents\n"
-        "   - Balance structure with friendly, engaging explanations\n"
-        "   - Use subheadings to organize detailed explanations\n"
-        "   - Give equal attention to data structures AND algorithms\n"
-        "   - For algorithms, always discuss time complexity and efficiency\n"
-        "   - For data structures, explain operations and implementations\n")
+    system_msg = (
+        f"You are a friendly DSA tutor having a conversation about the concepts shown in the document. Make complex concepts accessible and engaging as if you're chatting with a {user_level} level student.\n\n"
+    
+    "When explaining the document content:\n"
+    "1. Start with a warm, conversational introduction about what you're seeing\n"
+    "2. Break down the main concepts naturally, as if you're pointing things out to a friend\n"
+    "3. Use everyday language and analogies when appropriate\n"
+    "4. Express genuine interest in the interesting aspects of the concepts\n"
+    "5. Connect ideas to what they might already know\n\n"
+    
+    "For this {user_level} level user, ensure your explanation:\n"
+    f"- Has the right technical depth for a {user_level}\n"
+    "- Uses a warm, approachable tone throughout\n"
+    "- Feels like a natural conversation, not a formal analysis\n"
+    "- Connects theory to practical understanding\n\n"
+    
+    "Remember to explain key elements like:\n"
+    "- How the data structure works or how the algorithm functions\n"
+    "- Important operations and their implications\n"
+    "- Time and space complexity in appropriate language\n"
+    "- Any notable patterns or strategies shown in the document\n\n"
+    
+    "End your response with a thoughtful question or suggestion for further exploration."
+)
     
     # Add PDF context if available
     if has_pdf:
@@ -150,22 +150,21 @@ def validate_document_content(state: AgentState) -> Dict[str, Any]:
     
     try:
         # System message for simple validation
-        validation_prompt = f"""You are a document analyzer for DSA (Data Structures & Algorithms) content.
+        validation_prompt = f"""As a helpful DSA tutor, take a look at this {'document' if has_image else 'text'} and determine if it contains Data Structures & Algorithms concepts.
 
-Analyze the provided {'document' if has_image else 'text'} for:
-- Data structure visualizations or descriptions (arrays, trees, graphs, etc.)
-- Algorithm flowcharts, diagrams, or explanations
-- Code snippets showing DSA implementations
-- Step-by-step algorithm demonstrations
-- Algorithmic concepts and explanations
-- Time or space complexity analysis
+I'm looking for things like:
+- Visualizations or descriptions of data structures
+- Algorithm explanations or flowcharts
+- Code implementations of DSA concepts
+- Discussion of algorithmic efficiency or complexity
 
-Answer ONLY with one of these options:
-- "DSA_CONTENT_HIGH_CONFIDENCE" if you're very confident the document contains DSA content
-- "DSA_CONTENT_LOW_CONFIDENCE" if you think there might be DSA content but aren't sure
-- "NO_DSA_CONTENT" if you're confident there's no DSA content
+Based on what you see, simply respond with one of these options:
+- "DSA_CONTENT_HIGH_CONFIDENCE" if you're confident it contains DSA material
+- "DSA_CONTENT_LOW_CONFIDENCE" if there might be some DSA content but you're not sure
+- "NO_DSA_CONTENT" if you don't see any relevant DSA content
 
-Your response must be ONLY ONE of these three options with nothing else."""
+Just the option text is needed - no other explanation.
+"""
         
         # Add PDF context to prompt if available
         if has_pdf:

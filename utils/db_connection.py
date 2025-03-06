@@ -51,7 +51,7 @@ class ChatDatabase:
                 current_level TEXT,
                 previous_level TEXT,
                 confidence_score FLOAT,
-                topics TEXT,
+                topics TEXT DEFAULT '{}',
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
 

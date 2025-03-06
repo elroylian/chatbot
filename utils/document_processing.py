@@ -12,38 +12,71 @@ def process_image(uploaded_file):
     
     return base64_image, image
 
-def process_pdf(uploaded_file):
+def process_pdf(uploaded_file, extract_metadata=False, max_pages=None):
     """
-    Process an uploaded PDF file using PDFPlumberLoader.
+    Process an uploaded PDF file using pdfplumber.
     
     Args:
         uploaded_file: Streamlit uploaded file object
+        extract_metadata: Whether to extract and return PDF metadata (default: False)
+        max_pages: Maximum number of pages to process (default: None - process all)
     
     Returns:
-        str: Extracted text content from the PDF
+        Union[str, Dict[str, Any]]: Extracted text content from the PDF or dict with text and metadata
     """
+    import pdfplumber
+    import io
+    import logging
+    
+    # Configure logging
+    logger = logging.getLogger(__name__)
+    
+    # Initialize result
+    result = {
+        "text": "",
+        "metadata": {},
+        "pages_processed": 0,
+        "total_pages": 0
+    }
+    
     try:
-        import tempfile
-        import pdfplumber
+        # Get binary content from the uploaded file
+        pdf_bytes = uploaded_file.getvalue()
         
-        # Create a temporary file to save the uploaded PDF
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            # Write the uploaded file content to the temp file
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_file_path = tmp_file.name
+        # Use BytesIO to create a file-like object from the bytes
+        with io.BytesIO(pdf_bytes) as pdf_file:
+            # Use pdfplumber to open the file-like object directly
+            with pdfplumber.open(pdf_file) as pdf:
+                # Store total pages count
+                result["total_pages"] = len(pdf.pages)
+                
+                # Extract metadata if requested
+                if extract_metadata:
+                    result["metadata"] = pdf.metadata
+                
+                # Determine pages to process
+                pages_to_process = pdf.pages[:max_pages] if max_pages else pdf.pages
+                
+                # Process each page
+                text_content = []
+                for i, page in enumerate(pages_to_process):
+                    try:
+                        page_text = page.extract_text() or ""
+                        text_content.append(page_text)
+                        result["pages_processed"] += 1
+                    except Exception as page_error:
+                        logger.warning(f"Error extracting text from page {i+1}: {str(page_error)}")
+                        text_content.append(f"[Error extracting text from page {i+1}]")
+                
+                # Join all text with double newlines between pages
+                result["text"] = "\n\n".join(text_content)
         
-        # Use pdfplumber directly instead of PDFPlumberLoader
-        text_content = ""
-        with pdfplumber.open(tmp_file_path) as pdf:
-            for page in pdf.pages:
-                text_content += page.extract_text() or ""
-                text_content += "\n\n"  # Add spacing between pages
-        
-        # Clean up the temporary file
-        import os
-        os.unlink(tmp_file_path)
-        
-        return text_content
-        
+        # Return the result
+        return result["text"] if not extract_metadata else result
+    
+    except pdfplumber.PDFSyntaxError as e:
+        logger.error(f"Invalid or corrupted PDF file: {str(e)}")
+        raise Exception(f"The uploaded file is not a valid PDF: {str(e)}")
     except Exception as e:
+        logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
         raise Exception(f"Error processing PDF: {str(e)}")

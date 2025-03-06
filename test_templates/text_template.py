@@ -40,34 +40,17 @@ Return:
 1. message_type: 'non_english' if ANY non-English content is present, 'english' if input is entirely in English
 2. response: "I can only communicate in English. Please rephrase your question in English." for non-English content"""
 
-CONTENT_CLASSIFICATION_PROMPT = """Analyze the English input as a friendly DSA tutor:
+CONTENT_CLASSIFICATION_PROMPT = """Classify the user's intent based on their input in a DSA (Data Structures and Algorithms) chatbot context.
 
 Previous conversation:
 {context}
 
 Current input: {question}
 
-Classify the input into:
-
-1. 'dsa' - Questions directly about:
-- Data Structures (arrays, linked lists, trees, graphs, etc.)
-- Algorithms (sorting, searching, traversal, etc.)
-- Algorithm analysis (complexity, Big O notation)
-- DSA implementation
-- DSA problem-solving
-
-2. 'pleasantry' - Friendly conversation:
-- Greetings (hi, hello, hey)
-- Thanks/gratitude
-- Goodbyes
-- Emotional responses ("that makes sense", "I'm confused")
-- Small encouragements ("got it", "okay I understand")
-
-3. 'other' - Non-DSA technical content:
-- General programming
-- Math questions
-- Other CS topics
-- Non-technical questions
+Classify the intent into ONE of these categories:
+- dsa: Questions about data structures, algorithms, complexity analysis, implementation, or problem-solving
+- pleasantry: Greetings, thanks, goodbyes, or conversational acknowledgments
+- other: Non-DSA technical questions or topics outside the scope of DSA
 
 For pleasantries: Respond naturally like a friendly tutor
 For other: Tell user that it is out of your scope and redirect them to ask about DSA while being encouraging
@@ -189,15 +172,32 @@ Make it more specific, include relevant technical terms, and focus on the core D
 """
 
 RESPONSE_GENERATION_PROMPT = """
-Generate a DSA explanation following these exact requirements:
+You are a friendly, approachable DSA tutor who makes complex concepts accessible and engaging. Your explanations feel like a conversation with a friend, not a textbook.
 
+<Format_Requirements>
 {level_requirements}
+</Format_Requirements>
 
-Use this reference material: "{context}"
+<Reference_Material>
+{context}
+</Reference_Material>
 
-Question: {question}
+<Question>
+{question}
+</Question>
 
-Generate response following the exact structure and constraints above.
+Create a response that uses the Reference Material as your knowledge foundation, but delivers it in a conversational, engaging style. Your explanation should:
+
+- Use natural language and a friendly, supportive tone
+- Include conversational phrases and transitions between concepts
+- Relate technical concepts to intuitive examples when possible
+- Avoid overly formal or academic language unless needed for precision
+- Use "you" and "we" to create a sense of connection with the learner
+- Express enthusiasm about interesting aspects of the concept
+
+While following the format requirements for the user's level, ensure your explanation sounds like it's coming from a helpful tutor rather than an algorithm. Maintain technical accuracy from the Reference Material, but present it in a way that feels natural and engaging.
+
+Remember to balance being conversational with being clear and precise - technical accuracy matters, but so does being relatable and easy to understand.
 """
 
 # ===== Models and Type Definitions =====
@@ -654,7 +654,7 @@ def optimize_query(state: AgentState) -> Dict[str, Any]:
 
 def get_level_requirements(user_level: str) -> str:
     """
-    Get content requirements specific to user level.
+    Get improved content requirements specific to user level.
     
     Args:
         user_level: User's competency level (beginner, intermediate, advanced)
@@ -663,68 +663,63 @@ def get_level_requirements(user_level: str) -> str:
         String containing level-specific content requirements
     """
     level_requirements = {
-        "beginner": """
-            REQUIRED CONTENT STRUCTURE FOR BEGINNER LEVEL:
-            1. Simple definition using everyday analogies
-            2. Basic step-by-step explanation with a small example (max 5 elements)
-            3. Very basic time complexity (just "fast" or "slow" for different scenarios)
-            4. ONE simple real-world application
-            5. No implementation details unless specifically asked
-            6. Avoid technical jargon - use simple terms
-            7. If explaining an algorithm, include a simple walkthrough with a concrete example
-            8. If explaining a data structure, clearly describe what it is and what it's used for
-            
-            TONE AND STYLE:
-            - Use simple, clear language
-            - Break complex ideas into small steps
-            - Focus on building intuition
-            - Limit mathematical notation
-            - Use visual descriptions where helpful
-            Maximum response length: 250 words
-        """,
+    "beginner": """
+        When explaining to a beginner:
+
+        Start with a friendly, simple explanation that relates to everyday experiences. Think of how you'd explain it to a friend with no technical background.
         
-        "intermediate": """
-            REQUIRED CONTENT STRUCTURE FOR INTERMEDIATE LEVEL:
-            1. Technical definition with implementation overview
-            2. Detailed step-by-step explanation with medium example (5-10 elements)
-            3. Time/space complexity with basic explanation
-            4. Common use cases and trade-offs
-            5. Basic pseudocode if relevant
-            6. Technical terms with brief explanations
-            7. For algorithms: Include implementation considerations and optimization strategies
-            8. For data structures: Explain operations, common implementations, and efficiency
-            
-            TONE AND STYLE:
-            - Balance technical and plain language
-            - Include some implementation details
-            - Explain why certain choices are made
-            - Use some mathematical notation
-            - Compare with alternative approaches where relevant
-            Maximum response length: 400 words
-        """,
+        Include:
+        • A simple, relatable definition with real-world analogies
+        • A step-by-step walkthrough using a small example (3-5 elements)
+        • Visual descriptions that help them "see" the concept
+        • Plain language explanations of why this matters and when it's useful
+        • Very simple code examples with clear comments if needed
         
-        "advanced": """
-            REQUIRED CONTENT STRUCTURE FOR ADVANCED LEVEL:
-            1. Precise technical definition with implementation considerations
-            2. In-depth analysis with complex examples
-            3. Detailed time/space complexity analysis with proofs if relevant
-            4. Edge cases and optimization techniques
-            5. Implementation variations and trade-offs
-            6. Advanced applications and modifications
-            7. For algorithms: Include theoretical foundations, variants, and comparative analysis
-            8. For data structures: Discuss advanced operations, mathematical properties, and specialized uses
-            
-            TONE AND STYLE:
-            - Use technical terminology freely
-            - Focus on optimization and efficiency
-            - Include mathematical proofs when relevant
-            - Discuss system-level considerations
-            - Reference related research or theoretical concepts
-            Maximum response length: 600 words
-        """
+        Remember that beginners need to build confidence! Point out common mistakes in a supportive way, and connect this concept to what they might already know.
+        
+        Keep your explanation friendly, encouraging, and under 350 words.
+    """,
+    
+    "intermediate": """
+        For intermediate learners:
+        
+        Build on their existing knowledge with a balance of practical implementation and theoretical understanding. They're ready for more depth but still appreciate clear guidance.
+        
+        Include:
+        • A precise definition with proper terminology
+        • A walkthrough of common implementation approaches with their trade-offs
+        • A moderately complex example that shows the concept in action
+        • Time and space complexity analysis with intuitive explanations
+        • Practical code examples or pseudocode for key operations
+        • Discussion of common optimization techniques
+        
+        Connect this concept to related DSA topics they likely know, and highlight when this approach would be better than alternatives they might be familiar with.
+        
+        Your explanation should be conversational but technically sound, around 400-550 words.
+    """,
+    
+    "advanced": """
+        For advanced learners:
+        
+        Provide a technically rich exploration that respects their expertise while still being engaging. They appreciate depth, mathematical rigor, and discussions of edge cases.
+        
+        Include:
+        • Precise technical definitions with formal properties
+        • In-depth analysis of implementation variations and their performance characteristics
+        • Discussion of optimization techniques and their mathematical foundations
+        • Connections to broader algorithmic paradigms and computer science principles
+        • Analysis of edge cases and their handling
+        • System-level considerations that affect real-world performance
+        
+        While being technically comprehensive, maintain a collegial tone that respects their expertise without being overly formal. Feel free to reference research or advanced applications when relevant.
+        
+        Your explanation should be substantive but engaging, around 600-800 words.
+    """
     }
     
     # Default to intermediate if level unknown
+    print("LEVEL REQUIREMENT: ", user_level)
+    print("LEVEL REQUIREMENT: ", level_requirements.get(user_level.lower(), level_requirements["intermediate"]))
     return level_requirements.get(user_level.lower(), level_requirements["intermediate"])
 
 
@@ -827,7 +822,7 @@ def create_retrieval_graph() -> StateGraph:
     # Conditional edges from classification
     workflow.add_conditional_edges(
         "classify_user_input",
-        lambda x: x.get("next", "end"),  # Default to end if not specified
+        lambda x: x.get("next", "redirect"),  # Default to end if not specified
         {
             "proceed": "expand_ambiguous_question",
             "redirect": END
@@ -843,7 +838,7 @@ def create_retrieval_graph() -> StateGraph:
         tools_condition,
         {
             "tools": "retrieve",
-            END: END,
+            END: "synthesize_response",
         }
     )
     
@@ -866,3 +861,5 @@ def create_retrieval_graph() -> StateGraph:
 
 # Initialize the graph (to be compiled by the calling code)
 text_workflow = create_retrieval_graph()
+
+# graph= text_workflow.compile()

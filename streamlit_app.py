@@ -21,9 +21,6 @@ from langchain_core.messages import HumanMessage
 from utils.level_manager import should_analyze_user_level, get_next_level, get_previous_level
 
 ## TO DO
-# Test promoting and demoting users
-# Analysis should only be done after initial assessment
-# Analysis should be done when user 'Clear History'
 # Error Handling ensure db does not save user message if there is an error in the response
 
 
@@ -34,7 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CHATBOT_VERSION = "2.0.1"
+CHATBOT_VERSION = "2.0.3"
 DB_FILENAME = "chat.db"
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
@@ -90,7 +87,51 @@ def clear_session():
     session_vars = ["messages", "llm_chat_history", "user_level", "user_topics"]
     for var in session_vars:
         if var in st.session_state:
-            del st.session_state[var]   
+            del st.session_state[var]
+            
+def analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config):
+                with st.spinner("Assessing your progress...",show_time=True):
+                    # Run the analyzer
+                    previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
+
+                    analysis_input = {
+                        "messages": llm_chat_history,
+                        "user_level": user_level,
+                        "previous_topics": previous_topics
+                    }
+
+                    analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
+                    analysis_message = analysis_result["messages"][-1].content
+                    
+                    try:
+                        # Extract the level assessment
+                        # print(type(analysis_message))
+                        # print(analysis_message)
+                        
+                        analysis_data = json.loads(analysis_message)
+                        user_level = analysis_data.get("current_level")
+                        topics = analysis_data.get("topics", {})
+                        
+                        if analysis_data["recommendation"] == "Promote" and analysis_data["confidence"] >= 0.8:
+                            new_level = get_next_level(user_level)
+                            db.update_user_level(user_id, new_level)
+                            st.session_state["user_level"] = new_level
+                            st.success(f"Congratulations! You've been promoted to {new_level} level.")
+                        
+                        elif analysis_data["recommendation"] == "Demote" and analysis_data["confidence"] >= 0.9:
+                            new_level = get_previous_level(user_level)
+                            db.update_user_level(user_id, new_level)
+                            st.session_state["user_level"] = new_level
+                            st.info(f"Your level has been adjusted to {new_level}.")
+                        
+                        # Update the timestamp regardless of outcome
+                        db.update_analysis_timestamp(user_id)
+                        
+                        # Save topics
+                        db.update_user_topics(user_id, topics)
+                        
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.error(f"Error processing analysis result: {e}")  
 
 def auth_page():
     clear_session()
@@ -152,7 +193,6 @@ def chatbot_page():
     if st.session_state.get('authentication_status'):
         authenticator.logout('Logout','sidebar',key='main',callback=clear_session())
     
-    
     # Initialize session variables
     if "messages" not in st.session_state:
         st.session_state["messages"] = []
@@ -211,10 +251,12 @@ def chatbot_page():
         st.session_state["messages"] = []
         
         # Reset all graph states
+        memory.storage.clear()
         current_graph.update_state(values = {"messages": []}, config = langgraph_config)
         
         db.clear_chat_history(user_id, chat_id)
         st.toast("Chat history cleared successfully.",icon="✅")
+        analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config)
 
     # Add file uploader to sidebar based on user assessment status
     if st.session_state["user_level"] in ["", "null", None]:
@@ -229,7 +271,7 @@ def chatbot_page():
         uploaded_files = st.sidebar.file_uploader("Upload Files", 
                                                     type=["png", "jpg", "jpeg","pdf"], 
                                                     accept_multiple_files=True, 
-                                                    key= st.session_state["uploader_key"]
+                                                    key= st.session_state["uploader_key"],
                                                     )
         
         # To be passed as input to the LLM
@@ -276,6 +318,13 @@ def chatbot_page():
         for message in st.session_state.messages:
             with st.chat_message("user" if isinstance(message, HumanMessage) else "assistant"):
                 st.markdown(message.content)
+                
+    # Print Current Message State
+    hello = current_graph.get_state(langgraph_config)
+    print("Current State: ", hello)
+    if hello.values != {}:
+        print(hello.values["messages"])
+    # st.write(hello.get)
 
     # Accept user input
     if prompt := st.chat_input("What is an Array?"):
@@ -430,6 +479,7 @@ def chatbot_page():
                         
                         current_graph = text_workflow.compile(memory)
                         current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                        
                         output = current_graph.invoke(inputs, langgraph_config)
                         response = output["messages"][-1].content
                         
@@ -438,54 +488,13 @@ def chatbot_page():
                         stream_message = re.findall(r'\S+|\s+', response)
                         full_response = st.write_stream(stream_message)
                         db.save_message(user_id, chat_id, "assistant", response)
+            
+                        
     
         # After processing the user input and getting a response
         # Check if we should run level analysis
         if should_analyze_user_level(user_id) and st.session_state["user_level"] not in ["", "null", None]:
-            with st.spinner("Assessing your progress...",show_time=True):
-                # Run the analyzer
-                previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
-
-                analysis_input = {
-                    "messages": llm_chat_history,
-                    "user_level": user_level,
-                    "previous_topics": previous_topics
-                }
-
-                analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
-                analysis_message = analysis_result["messages"][-1].content
-                
-                try:
-                    # Extract the level assessment
-                    # print(type(analysis_message))
-                    # print(analysis_message)
-                    
-                    analysis_data = json.loads(analysis_message)
-                    user_level = analysis_data.get("current_level")
-                    topics = analysis_data.get("topics", {})
-                    
-                    if analysis_data["recommendation"] == "Promote" and analysis_data["confidence"] >= 0.8:
-                        # Map levels (assuming you have a mapping function)
-                        new_level = get_next_level(user_level)
-                        db.update_user_level(user_id, new_level)
-                        st.session_state["user_level"] = new_level
-                        st.success(f"Congratulations! You've been promoted to {new_level} level.")
-                    
-                    elif analysis_data["recommendation"] == "Demote" and analysis_data["confidence"] >= 0.9:
-                        # Higher confidence threshold for demotion
-                        new_level = get_previous_level(user_level)
-                        db.update_user_level(user_id, new_level)
-                        st.session_state["user_level"] = new_level
-                        st.info(f"Your level has been adjusted to {new_level}.")
-                    
-                    # Update the timestamp regardless of outcome
-                    db.update_analysis_timestamp(user_id)
-                    
-                    # Save topics
-                    db.update_user_topics(user_id, topics)
-                    
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.error(f"Error processing analysis result: {e}")
+            analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config)
 
 def topics():
     st.title("📚 Topics You've Learned")
@@ -497,11 +506,16 @@ def topics():
 
     user_id = st.session_state["user_id"]
     
+    if st.sidebar.button("Reset Topics", type='primary', help="Clear all topics learned by the user."):
+        db.update_user_topics(user_id, "{}")
+        st.toast("All topics have been cleared.")
+    
     # Retrieve topics from the database using the get_user_topics() function
     topics = db.get_user_topics(user_id)  # Expected to return a dict {parent_topic: [subtopics]}
-    topics = json.loads(topics) if topics else {}
+    topics = json.loads(topics) if topics else "{}"
     
     if topics != "{}":
+        print(f'{type(topics)}')
         # Sidebar elements: filter and overview metric
         st.sidebar.header("Filter Topics")
         parent_topics = list(topics.keys())
@@ -537,16 +551,16 @@ def topics():
         st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
 
 if st.session_state["authentication_status"] in [None,False] or cookie_session_available is None:
-# if st.session_state["authentication_status"] in [None,False]:
     auth_page()
     
-else:
+else:   
     page_names_to_funcs = {
     "Chatbot": chatbot_page,
     "Topics": topics,
     }
+    
 
-    page_name = st.sidebar.selectbox("Choose a page", page_names_to_funcs.keys())
+    page_name = st.sidebar.selectbox("Select a page", list(page_names_to_funcs.keys()))
     page_names_to_funcs[page_name]()
 
         

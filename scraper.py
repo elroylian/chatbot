@@ -315,13 +315,14 @@ def main():
     
     # List of algorithm topic URLs to scrape
     urls = [
-        "https://www.geeksforgeeks.org/greedy-algorithms/",
-        "https://www.geeksforgeeks.org/dynamic-programming/",
-        "https://www.geeksforgeeks.org/graph-data-structure-and-algorithms/",
-        "https://www.geeksforgeeks.org/pattern-searching/",
-        "https://www.geeksforgeeks.org/branch-and-bound-algorithm/",
-        "https://www.geeksforgeeks.org/geometric-algorithms/",
-        "https://www.geeksforgeeks.org/randomized-algorithms/"
+        # "https://www.geeksforgeeks.org/greedy-algorithms/",
+        # "https://www.geeksforgeeks.org/dynamic-programming/",
+        # "https://www.geeksforgeeks.org/graph-data-structure-and-algorithms/",
+        # "https://www.geeksforgeeks.org/pattern-searching/",
+        # "https://www.geeksforgeeks.org/branch-and-bound-algorithm/",
+        # "https://www.geeksforgeeks.org/geometric-algorithms/",
+        # "https://www.geeksforgeeks.org/randomized-algorithms/"
+        "https://www.geeksforgeeks.org/lru-cache-implementation/"
     ]
     
     for url in urls:
