@@ -48,9 +48,9 @@ Previous conversation:
 Current input: {question}
 
 Classify the intent into ONE of these categories:
-- dsa: Questions about data structures, algorithms, complexity analysis, implementation, or problem-solving
-- pleasantry: Greetings, thanks, goodbyes, or conversational acknowledgments
-- other: Non-DSA technical questions or topics outside the scope of DSA
+- dsa: Questions about data structures, algorithms, complexity analysis, implementation, problem-solving, or anything related to dsa
+- pleasantry: Greetings, thanks, goodbyes or conversational acknowledgments
+- other: Non-DSA questions or topics outside the scope of DSA
 
 For pleasantries: Respond naturally like a friendly tutor
 For other: Tell user that it is out of your scope and redirect them to ask about DSA while being encouraging
@@ -59,47 +59,45 @@ Return:
 1. message_type: 'dsa', 'pleasantry', or 'other'
 2. response: Appropriate response for non-DSA inputs"""
 
-QUESTION_ASSESSMENT_PROMPT = """
-Analyze this question in the context of a Data Structures and Algorithms conversation.
-
-Current question: {question}
-
-Does this question:
-1. Contain any unclear pronouns (it, they, this, that) without clear referents?
-2. Reference a specific DSA concept without naming it explicitly?
-3. Lack sufficient specificity to be answered properly?
-
-Respond with a simple Yes or No.
-"""
-
+# Consolidated Question Clarification Prompt with Topic Detection
 QUESTION_CLARIFICATION_PROMPT = """
-You are a DSA question processor. Transform user's prompt into clear, context-aware queries.
+You are a specialized DSA question processor working with a conversational AI system. Your task is to transform user questions into clear, context-aware queries while preserving the original intent.
 
-OBJECTIVE: Rewrite user's prompt to include relevant context from chat history while maintaining original intent.
-
-Previous conversation:
+<Previous_Conversation>
 {context}
+</Previous_Conversation>
 
-Current question: {question}
+<Current_Question>
+{question}
+</Current_Question>
 
-TRANSFORMATION RULES:
-1. Replace pronouns with specific references
-   Before: "How do I implement it?"
-   After: "How do I implement a binary search tree?"
+<Analysis_Guidelines>
+- Determine if this is a new topic or a follow-up to the previous conversation.
+- Assess whether the question is sufficiently clear as stated.
+- Consider if the user's intent is obvious despite brevity.
+- Evaluate if additional context would improve clarity.
+</Analysis_Guidelines>
 
-2. Include relevant context
-   Before: "What about the time complexity?"
-   After: "What is the time complexity of quicksort's partitioning step?"
+<Clarification_Principles>
+1. Minimal intervention: Make the smallest changes needed for clarity.
+2. Intent preservation: Never change what the user is asking about.
+3. Natural language: Output should sound like a human question.
+4. Context awareness: Use conversation history intelligently.
+5. Topic boundaries: Don't carry implementation details across unrelated topics.
+IMPORTANT: When users mention just an algorithm or data structure name (e.g., "insertion sort", "binary trees"), they typically want a general explanation. Transform these into natural-sounding questions that ask for an explanation, but avoid formulaic expansions that sound robotic.
+</Clarification_Principles>
 
-3. Maintain technical precision
-   Before: "How does the fast one work?"
-   After: "How does the O(n log n) merge sort algorithm work?"
+<Output_Requirements>
+- Return a natural-sounding, clear question.
+- If the original question is already clear, return it unchanged.
+- Ensure the question is a complete sentence.
+- Use conversation context only when necessary to resolve ambiguity.
+- Never explain your reasoning - return only the clarified question.
+</Output_Requirements>
 
-4. Keep original meaning
-   Do NOT add assumptions or change the question's scope
-
-Your response should be ONLY the clarified question with no additional explanation.
+Return ONLY the clarified question with no explanations or additional text.
 """
+
 
 RETRIEVAL_PROMPT = """You are a knowledgeable DSA expert assistant specializing in Data Structures and Algorithms. Your responses must be accurate, clear, and tailored to the user's expertise (beginner, intermediate, or advanced). For every question, follow these steps:
 
@@ -172,32 +170,93 @@ Make it more specific, include relevant technical terms, and focus on the core D
 """
 
 RESPONSE_GENERATION_PROMPT = """
-You are a friendly, approachable DSA tutor who makes complex concepts accessible and engaging. Your explanations feel like a conversation with a friend, not a textbook.
-
-<Format_Requirements>
-{level_requirements}
-</Format_Requirements>
-
-<Reference_Material>
-{context}
-</Reference_Material>
+You are a friendly, conversational DSA tutor named DSA Bot. Your responses should be natural, engaging, and carefully tailored to avoid repetition.
 
 <Question>
 {question}
 </Question>
 
-Create a response that uses the Reference Material as your knowledge foundation, but delivers it in a conversational, engaging style. Your explanation should:
+<Reference_Material>
+{context}
+</Reference_Material>
 
-- Use natural language and a friendly, supportive tone
-- Include conversational phrases and transitions between concepts
-- Relate technical concepts to intuitive examples when possible
-- Avoid overly formal or academic language unless needed for precision
-- Use "you" and "we" to create a sense of connection with the learner
-- Express enthusiasm about interesting aspects of the concept
+<User_Level>
+{level_requirements}
+</User_Level>
 
-While following the format requirements for the user's level, ensure your explanation sounds like it's coming from a helpful tutor rather than an algorithm. Maintain technical accuracy from the Reference Material, but present it in a way that feels natural and engaging.
+<Previous_Exchanges>
+{conversation_history}
+</Previous_Exchanges>
 
-Remember to balance being conversational with being clear and precise - technical accuracy matters, but so does being relatable and easy to understand.
+<Strict_Rules>
+1. NEVER repeat explanations, analogies, examples, or code from previous exchanges - this is your #1 priority
+2. If you catch yourself about to repeat information, STOP and use a different approach
+3. For follow-up questions about the same topic, ONLY provide the new information requested
+4. Do NOT restate basic definitions or concepts you've already covered
+</Strict_Rules>
+
+<Conversation_Flow>
+1. Start with a brief, friendly acknowledgment of the question 
+2. For questions on topics previously discussed:
+   - Use phrases like "Building on our previous discussion..." or "As we saw earlier..."
+   - Reference but don't repeat the earlier explanation
+   - Focus ONLY on what's new or different in this question
+
+3. For completely new topics:
+   - Use a fresh, engaging introduction
+   - Provide a concise explanation with examples appropriate to user level
+
+4. For follow-up questions (like "java code?" or "what's the time complexity?"):
+   - Answer DIRECTLY without restating what was already covered
+   - Use transitional phrases like "Now for the Java implementation..." or "Regarding time complexity..."
+
+5. End with a brief, engaging closing that invites further exploration
+</Conversation_Flow>
+
+<Voice_And_Style>
+- Use varied sentence structures and transitions
+- Be warm and encouraging
+- Speak naturally like a friendly tutor, not a textbook
+- Adapt your tone to the user's level (more casual for beginners, more technical for advanced)
+- Use occasional questions to engage the user
+- Incorporate light humor where appropriate
+</Voice_And_Style>
+
+<Type_Specific_Instructions>
+If the user asks for:
+1. A different programming language implementation:
+   - Say "Here's the implementation in [language]:" and ONLY show the code
+   - Do NOT re-explain the algorithm logic unless specifically asked
+   
+2. Time/space complexity:
+   - If already mentioned, just elaborate on the specific aspects asked about
+   - Don't restate the full explanation
+   
+3. Clarification on a concept:
+   - Focus narrowly on the specific confusion point
+   - Reference but don't repeat previous explanations
+</Type_Specific_Instructions>
+
+Respond accordingly based on the previous exchanges, user's competency level, and the DSA content provided.
+"""
+
+DIRECT_GENERATION_PROMPT = """
+You are a friendly, conversational DSA tutor named DSA Bot. Your responses should be natural, engaging, and carefully tailored to avoid repetition. 
+Respond to the question accordingly based on the previous exchanges. Only tailor to user level if its a new topic and not a follow up question.
+
+<Question>
+{question}
+</Question>
+
+<User_Level>
+{level_requirements}
+</User_Level>
+
+<Previous_Exchanges>
+{conversation_history}
+</Previous_Exchanges>
+
+
 """
 
 # ===== Models and Type Definitions =====
@@ -227,7 +286,7 @@ class ValidationResult(BaseModel):
 
 # ===== Utility Functions =====
 
-def format_conversation_context(messages: List[BaseMessage], max_messages: int = 6) -> str:
+def format_conversation_context(messages: List[BaseMessage], max_messages: int = 10) -> str:
     """
     Format conversation context from messages
     
@@ -428,15 +487,16 @@ def classify_user_input(state: AgentState) -> Dict[str, Any]:
 
 def expand_ambiguous_question(state: AgentState) -> Dict[str, Any]:
     """
-    Clarify ambiguous questions by resolving references and adding context.
+    Process questions by determining if they are new topics or follow-ups
+    and applying appropriate clarification.
     
     Args:
         state: Current state containing messages and user level
         
     Returns:
-        Updated state with clarified question
+        Updated state with processed question
     """
-    logger.info("Expanding ambiguous question")
+    logger.info("Processing question context and clarification")
     messages = state["messages"]
     user_level = state["user_level"]
     
@@ -444,9 +504,8 @@ def expand_ambiguous_question(state: AgentState) -> Dict[str, Any]:
         # Get the current question
         current_question = get_message_content(messages[-1])
         
-        # Get conversation context - specifically the last 6 messages
-        # This ensures we have the most relevant recent context
-        max_context_messages = 6
+        # Get conversation context with increased history
+        max_context_messages = 10
         context_messages = messages[-max_context_messages-1:-1] if len(messages) > max_context_messages+1 else messages[:-1]
         conversation_context = "\n".join([
             f"{'User: ' if isinstance(m, HumanMessage) else 'Assistant: '}{get_message_content(m)}"
@@ -456,25 +515,8 @@ def expand_ambiguous_question(state: AgentState) -> Dict[str, Any]:
         # Initialize LLM with zero temperature for consistent output
         llm = get_llm(temperature=0)
         
-        # First, determine if the question needs clarification at all
-        assessment_prompt = PromptTemplate(
-            template=QUESTION_ASSESSMENT_PROMPT,
-            input_variables=["question"]
-        )
-        
-        needs_clarification_response = llm.invoke([
-            HumanMessage(content=assessment_prompt.format(question=current_question))
-        ])
-        
-        # If no clarification needed, return original messages
-        if "no" in needs_clarification_response.content.lower():
-            logger.info("No clarification needed")
-            return {
-                "messages": messages,
-                "user_level": user_level
-            }
-        
-        # Otherwise proceed with actual clarification
+        # Use the consolidated clarification prompt that handles both
+        # topic detection and appropriate clarification
         clarification_prompt = PromptTemplate(
             template=QUESTION_CLARIFICATION_PROMPT,
             input_variables=["context", "question"]
@@ -489,15 +531,15 @@ def expand_ambiguous_question(state: AgentState) -> Dict[str, Any]:
         
         clarified_question = clarified_response.content.strip()
         
-        # If the clarified question is significantly different, use it
+        # If the clarified question is different from the original, use it
         if clarified_question and clarified_question != current_question:
-            logger.info(f"Question clarified: '{current_question}' -> '{clarified_question}'")
+            logger.info(f"Question processed: '{current_question}' -> '{clarified_question}'")
             return {
-                "messages": [HumanMessage(content=clarified_question)], 
+                "messages": [*messages[:-1], HumanMessage(content=clarified_question)], 
                 "user_level": user_level
             }
         else:
-            logger.info("No meaningful clarification produced")
+            logger.info("No changes needed to question")
             return {
                 "messages": messages, 
                 "user_level": user_level
@@ -655,72 +697,53 @@ def optimize_query(state: AgentState) -> Dict[str, Any]:
 def get_level_requirements(user_level: str) -> str:
     """
     Get improved content requirements specific to user level.
-    
+
     Args:
         user_level: User's competency level (beginner, intermediate, advanced)
-        
+
     Returns:
-        String containing level-specific content requirements
+        A string containing level-specific content requirements.
     """
     level_requirements = {
-    "beginner": """
-        When explaining to a beginner:
+        "beginner": """
+            When explaining to a beginner:
 
-        Start with a friendly, simple explanation that relates to everyday experiences. Think of how you'd explain it to a friend with no technical background.
-        
-        Include:
-        • A simple, relatable definition with real-world analogies
-        • A step-by-step walkthrough using a small example (3-5 elements)
-        • Visual descriptions that help them "see" the concept
-        • Plain language explanations of why this matters and when it's useful
-        • Very simple code examples with clear comments if needed
-        
-        Remember that beginners need to build confidence! Point out common mistakes in a supportive way, and connect this concept to what they might already know.
-        
-        Keep your explanation friendly, encouraging, and under 350 words.
-    """,
-    
-    "intermediate": """
-        For intermediate learners:
-        
-        Build on their existing knowledge with a balance of practical implementation and theoretical understanding. They're ready for more depth but still appreciate clear guidance.
-        
-        Include:
-        • A precise definition with proper terminology
-        • A walkthrough of common implementation approaches with their trade-offs
-        • A moderately complex example that shows the concept in action
-        • Time and space complexity analysis with intuitive explanations
-        • Practical code examples or pseudocode for key operations
-        • Discussion of common optimization techniques
-        
-        Connect this concept to related DSA topics they likely know, and highlight when this approach would be better than alternatives they might be familiar with.
-        
-        Your explanation should be conversational but technically sound, around 400-550 words.
-    """,
-    
-    "advanced": """
-        For advanced learners:
-        
-        Provide a technically rich exploration that respects their expertise while still being engaging. They appreciate depth, mathematical rigor, and discussions of edge cases.
-        
-        Include:
-        • Precise technical definitions with formal properties
-        • In-depth analysis of implementation variations and their performance characteristics
-        • Discussion of optimization techniques and their mathematical foundations
-        • Connections to broader algorithmic paradigms and computer science principles
-        • Analysis of edge cases and their handling
-        • System-level considerations that affect real-world performance
-        
-        While being technically comprehensive, maintain a collegial tone that respects their expertise without being overly formal. Feel free to reference research or advanced applications when relevant.
-        
-        Your explanation should be substantive but engaging, around 600-800 words.
-    """
+            Start with a friendly, simple explanation that relates to everyday experiences.
+            Include a simple, relatable definition with real-world analogies, a step-by-step walkthrough,
+            visual descriptions, plain language explanations of why the concept matters, and very simple code examples.
+            Additionally, if applicable, briefly mention any performance strengths (for example, that the algorithm 
+            is especially efficient for small or nearly sorted lists and is memory-friendly).
+            Aim for clarity and conciseness (for instance, around 350 words if it naturally fits), 
+            but prioritize ensuring the explanation is accessible and builds confidence.
+        """,
+        "intermediate": """
+            For intermediate learners:
+
+            Provide a balanced explanation that combines both practical implementation and theoretical insights.
+            Include a precise definition with proper terminology, a walkthrough of common implementation approaches,
+            a moderately complex example, an intuitive time/space complexity analysis, practical code examples or pseudocode,
+            and a discussion of common optimizations.
+            Aim for a conversational yet technically sound explanation (roughly 400-550 words is a guideline), 
+            but adjust based on the depth required.
+        """,
+        "advanced": """
+            For advanced learners:
+
+            Deliver a technically rich, in-depth explanation that respects their expertise.
+            Include precise definitions with formal properties, detailed analysis of implementation variations,
+            discussions of optimization techniques and their mathematical foundations, connections to broader algorithmic paradigms,
+            and an analysis of edge cases.
+            Aim for a substantive yet engaging explanation (as a guideline, around 600-800 words), 
+            while adapting as needed based on the complexity of the topic.
+        """
     }
     
-    # Default to intermediate if level unknown
-    print("LEVEL REQUIREMENT: ", user_level)
-    print("LEVEL REQUIREMENT: ", level_requirements.get(user_level.lower(), level_requirements["intermediate"]))
-    return level_requirements.get(user_level.lower(), level_requirements["intermediate"])
+    selected_requirement = level_requirements.get(user_level.lower(), level_requirements["intermediate"])
+    logger.debug("LEVEL REQUIREMENT: %s", user_level)
+    logger.debug("Selected requirement: %s", selected_requirement)
+    return selected_requirement
+
+
 
 
 def synthesize_response(state: AgentState) -> Dict[str, Any]:
@@ -746,7 +769,7 @@ def synthesize_response(state: AgentState) -> Dict[str, Any]:
                 "user_level": user_level
             }
             
-        # Generally, second-to-last message is question, last message is retrieved docs
+        # Get the current question
         question = get_message_content(messages[-2])
         docs = get_message_content(messages[-1])
         
@@ -756,23 +779,36 @@ def synthesize_response(state: AgentState) -> Dict[str, Any]:
                 "messages": [AIMessage(content="I couldn't find enough information to answer your question. Could you try asking about a different DSA concept?")], 
                 "user_level": user_level
             }
+        
+        # Extract previous assistant messages to check for patterns
+        # Only include the last 2-3 exchanges to focus on recent patterns
+        previous_responses = []
+        for i in range(len(messages) - 3, 0, -2):  # Start from 3 messages back, go backward, step 2
+            if i >= 0 and isinstance(messages[i], AIMessage):
+                previous_responses.append(get_message_content(messages[i]))
+            if len(previous_responses) >= 3:  # Get at most 3 previous responses
+                break
+                
+        conversation_history = "\n\n---\n\n".join(previous_responses)
             
         # Level-specific content requirements
         level_requirements = get_level_requirements(user_level)
         
         # Create response generation prompt
         prompt = PromptTemplate(
-            input_variables=['context', 'question', 'level_requirements'], 
+            input_variables=['context', 'question', 'level_requirements', 'conversation_history'], 
             template=RESPONSE_GENERATION_PROMPT
         )
         
-        llm = get_llm(temperature=0)
+        # Use higher temperature for more variety
+        llm = get_llm(temperature=0.7)
         chain = prompt | llm | StrOutputParser()
         
         response = chain.invoke({
             "context": docs,
             "question": question,
-            "level_requirements": level_requirements
+            "level_requirements": level_requirements,
+            "conversation_history": conversation_history
         })
         
         logger.info(f"Generated response for user level: {user_level}")
@@ -785,7 +821,85 @@ def synthesize_response(state: AgentState) -> Dict[str, Any]:
     except Exception as e:
         return handle_workflow_error(e, messages, user_level, "synthesize_response")
 
-
+def generate_direct_response(state: AgentState) -> Dict[str, Any]:
+    """
+    Generate a response directly from the model's knowledge without retrieved content.
+    
+    Args:
+        state: Current state containing messages and user level
+        
+    Returns:
+        Updated state with generated response
+    """
+    logger.info("Generating direct response without retrieval")
+    messages = state["messages"]
+    user_level = state["user_level"]
+    
+    try:
+        # Get the current question
+        if len(messages) < 1:
+            logger.warning("No messages for direct response")
+            return {
+                "messages": [AIMessage(content="I couldn't understand your question. Could you please rephrase it?")],
+                "user_level": user_level
+            }
+        
+        # Find the latest user question
+        question = None
+        for i in range(len(messages) - 1, -1, -1):
+            if isinstance(messages[i], HumanMessage):
+                question = get_message_content(messages[i])
+                break
+        
+        if not question:
+            logger.warning("No question found for direct response")
+            return {
+                "messages": [AIMessage(content="I'm not sure what you're asking. Could you please clarify your question?")],
+                "user_level": user_level
+            }
+        
+        # Extract previous assistant messages to check for patterns
+        previous_responses = []
+        for i in range(len(messages) - 3, 0, -2):  # Start from 3 messages back
+            if i >= 0 and isinstance(messages[i], AIMessage):
+                previous_responses.append(get_message_content(messages[i]))
+            if len(previous_responses) >= 3:  # Get at most 3 previous responses
+                break
+                
+        conversation_history = "\n\n---\n\n".join(previous_responses)
+            
+        # Level-specific content requirements
+        level_requirements = get_level_requirements(user_level)
+        
+        # Use the same RESPONSE_GENERATION_PROMPT but with guidance for direct knowledge
+        prompt = PromptTemplate(
+            input_variables=['question', 'level_requirements', 'conversation_history'], 
+            template=DIRECT_GENERATION_PROMPT
+        )
+        
+        # Initialize LLM with appropriate temperature
+        llm = get_llm(temperature=0.7)
+        chain = prompt | llm | StrOutputParser()
+        
+        # Use a note instead of retrieved content to guide the model
+        knowledge_note = "Note: Please answer this question based on your knowledge of data structures and algorithms without external references."
+        
+        response = chain.invoke({
+            "context": knowledge_note,
+            "question": question,
+            "level_requirements": level_requirements,
+            "conversation_history": conversation_history
+        })
+        
+        logger.info(f"Generated direct response for user level: {user_level}")
+        
+        return {
+            "messages": [AIMessage(content=response)], 
+            "user_level": user_level
+        }
+        
+    except Exception as e:
+        return handle_workflow_error(e, messages, user_level, "generate_direct_response")
 # ===== Graph Setup =====
 
 def create_retrieval_graph() -> StateGraph:
@@ -813,7 +927,8 @@ def create_retrieval_graph() -> StateGraph:
     workflow.add_node("expand_ambiguous_question", expand_ambiguous_question)
     workflow.add_node("evaluate_and_retrieve", evaluate_and_retrieve)
     workflow.add_node("retrieve", ToolNode([retriever_tool]))
-    workflow.add_node("synthesize_response", synthesize_response)
+    workflow.add_node("synthesize_response", synthesize_response)  # For retrieval-based responses
+    workflow.add_node("generate_direct_response", generate_direct_response)  # For direct knowledge responses
     workflow.add_node("optimize_query", optimize_query)
     
     # Add edges
@@ -829,7 +944,7 @@ def create_retrieval_graph() -> StateGraph:
         }
     )
     
-    # After clarification, go to agent
+    # After clarification, go to retrieval or direct response generation
     workflow.add_edge("expand_ambiguous_question", "evaluate_and_retrieve")
     
     # Tool handling
@@ -838,7 +953,7 @@ def create_retrieval_graph() -> StateGraph:
         tools_condition,
         {
             "tools": "retrieve",
-            END: "synthesize_response",
+            END: "generate_direct_response",
         }
     )
     
@@ -854,6 +969,7 @@ def create_retrieval_graph() -> StateGraph:
     
     # Final edges
     workflow.add_edge("synthesize_response", END)
+    workflow.add_edge("generate_direct_response", END)
     workflow.add_edge("optimize_query", "evaluate_and_retrieve")
     
     return workflow

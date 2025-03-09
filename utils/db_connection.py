@@ -2,6 +2,14 @@ import sqlite3
 from typing import Optional, List, Dict
 import uuid
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class ChatDatabase:
     def __init__(self, db_path: str = 'chat.db'):
@@ -364,18 +372,36 @@ class ChatDatabase:
             conn.close()
     
             
-    def get_user_topics(self, user_id: str,) -> List[str]:
-        """Update the user's topics in the user_analysis table."""
-        conn = self.create_connection()
-        cursor = conn.cursor()
+    def get_user_topics(self, user_id):
+        """
+        Get the topics a user has covered in their DSA learning.
         
-        cursor.execute('''
-        SELECT topics FROM user_analysis
-        WHERE user_id = ?
-        ''', (user_id,))
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else None
+        Args:
+            user_id (str): The user's unique ID
+            
+        Returns:
+            dict or str: Topics dictionary or JSON string, empty dict if none found
+        """
+        try:
+            conn = self.create_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT topics FROM user_analysis
+                WHERE user_id = ?
+                ''', (user_id,))
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result and result[0]:
+                return result[0]  # Return the JSON string
+            else:
+                return "{}"  # Return empty JSON object as string
+                
+        except Exception as e:
+            logger.error(f"Error getting user topics: {e}")
+            return "{}"
             
 
     def append_user_topic(self, user_id: str, parent_topic: str, subtopic: str) -> bool:

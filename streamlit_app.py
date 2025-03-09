@@ -22,6 +22,7 @@ from utils.level_manager import should_analyze_user_level, get_next_level, get_p
 
 ## TO DO
 # Error Handling ensure db does not save user message if there is an error in the response
+# Focus on analyser_workflow
 
 
 # Configure logging
@@ -90,48 +91,155 @@ def clear_session():
             del st.session_state[var]
             
 def analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config):
-                with st.spinner("Assessing your progress...",show_time=True):
-                    # Run the analyzer
-                    previous_topics = db.get_user_topics(user_id)  # Ensure this returns a dictionary
-
-                    analysis_input = {
-                        "messages": llm_chat_history,
-                        "user_level": user_level,
-                        "previous_topics": previous_topics
-                    }
-
-                    analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
-                    analysis_message = analysis_result["messages"][-1].content
-                    
+    with st.spinner("Assessing your progress...", show_time=True):
+        try:
+            # Get previous topics with error handling
+            previous_topics = {}
+            db_topics = db.get_user_topics(user_id)
+            
+            if db_topics:
+                if isinstance(db_topics, dict):
+                    previous_topics = db_topics
+                elif isinstance(db_topics, str):
                     try:
-                        # Extract the level assessment
-                        # print(type(analysis_message))
-                        # print(analysis_message)
-                        
-                        analysis_data = json.loads(analysis_message)
-                        user_level = analysis_data.get("current_level")
-                        topics = analysis_data.get("topics", {})
-                        
-                        if analysis_data["recommendation"] == "Promote" and analysis_data["confidence"] >= 0.8:
-                            new_level = get_next_level(user_level)
-                            db.update_user_level(user_id, new_level)
-                            st.session_state["user_level"] = new_level
-                            st.success(f"Congratulations! You've been promoted to {new_level} level.")
-                        
-                        elif analysis_data["recommendation"] == "Demote" and analysis_data["confidence"] >= 0.9:
-                            new_level = get_previous_level(user_level)
-                            db.update_user_level(user_id, new_level)
-                            st.session_state["user_level"] = new_level
-                            st.info(f"Your level has been adjusted to {new_level}.")
-                        
-                        # Update the timestamp regardless of outcome
-                        db.update_analysis_timestamp(user_id)
-                        
-                        # Save topics
-                        db.update_user_topics(user_id, topics)
-                        
-                    except (json.JSONDecodeError, KeyError) as e:
-                        logger.error(f"Error processing analysis result: {e}")  
+                        previous_topics = json.loads(db_topics)
+                    except json.JSONDecodeError:
+                        # If JSON is invalid, use empty dict
+                        previous_topics = {}
+            
+            # Ensure previous_topics is a dictionary
+            if not isinstance(previous_topics, dict):
+                previous_topics = {}
+            
+            # Run the analyzer
+            analysis_input = {
+                "messages": llm_chat_history,
+                "user_level": user_level,
+                "previous_topics": previous_topics
+            }
+
+            analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
+            analysis_message = analysis_result["messages"][-1].content
+            
+            try:
+                # Extract the level assessment
+                analysis_data = json.loads(analysis_message)
+                user_level = analysis_data.get("current_level")
+                topics = analysis_data.get("topics", {})
+                
+                # Ensure topics is a dictionary
+                if not isinstance(topics, dict):
+                    topics = {}
+                
+                # Handle level changes
+                if analysis_data.get("recommendation") == "Promote" and analysis_data.get("confidence", 0) >= 0.8:
+                    new_level = get_next_level(user_level)
+                    db.update_user_level(user_id, new_level)
+                    st.session_state["user_level"] = new_level
+                    st.success(f"Congratulations! You've been promoted to {new_level} level.")
+                
+                elif analysis_data.get("recommendation") == "Demote" and analysis_data.get("confidence", 0) >= 0.9:
+                    new_level = get_previous_level(user_level)
+                    db.update_user_level(user_id, new_level)
+                    st.session_state["user_level"] = new_level
+                    st.info(f"Your level has been adjusted to {new_level}.")
+                
+                # Update the timestamp
+                db.update_analysis_timestamp(user_id)
+                
+                # Merge and save topics (instead of just replacing)
+                merged_topics = merge_topics(previous_topics, topics)
+                db.update_user_topics(user_id, merged_topics)
+                
+                # Store recommended topics in session state for displaying later
+                if "recommended_topics" in analysis_data and analysis_data["recommended_topics"]:
+                    st.session_state["recommended_topics"] = analysis_data["recommended_topics"]
+                    
+                    # Display the recommendations in a small sidebar panel
+                    with st.sidebar.expander("Topic Recommendations", expanded=True):
+                        st.write("Based on your progress, consider exploring:")
+                        for i, rec in enumerate(analysis_data["recommended_topics"], 1):
+                            topic_name = rec.get("topic", "").replace("_", " ").title()
+                            if topic_name:
+                                st.write(f"**{i}. {topic_name}**")
+                                if "reason" in rec:
+                                    st.write(f"_{rec['reason']}_")
+                                if st.button(f"Learn about {topic_name}", key=f"rec_{i}"):
+                                    st.session_state["prefill_question"] = f"Tell me about {topic_name}"
+                                    st.rerun()
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing analysis message as JSON: {e}")
+                logger.error(f"Raw message: {analysis_message}")
+                
+            except Exception as e:
+                logger.error(f"Error processing analysis result: {e}", exc_info=True)
+                
+        except Exception as e:
+            logger.error(f"Error in analyse_user_progress: {e}", exc_info=True)
+
+# Helper function to merge topics
+def merge_topics(existing_topics, new_topics):
+    """
+    Merge new topics with existing topics, preserving and combining subtopics.
+    
+    Args:
+        existing_topics (dict or str): Dictionary of existing parent topics and their subtopics or JSON string
+        new_topics (dict or str): Dictionary of new parent topics and their subtopics or JSON string
+        
+    Returns:
+        dict: Merged topics dictionary
+    """
+    # Ensure existing_topics is a dictionary
+    if existing_topics is None:
+        existing_topics = {}
+    elif isinstance(existing_topics, str):
+        try:
+            existing_topics = json.loads(existing_topics)
+        except (json.JSONDecodeError, TypeError):
+            existing_topics = {}
+    
+    # Ensure new_topics is a dictionary
+    if new_topics is None:
+        new_topics = {}
+    elif isinstance(new_topics, str):
+        try:
+            new_topics = json.loads(new_topics)
+        except (json.JSONDecodeError, TypeError):
+            new_topics = {}
+    
+    # If after conversion, either is still not a dictionary, make it one
+    if not isinstance(existing_topics, dict):
+        existing_topics = {}
+    if not isinstance(new_topics, dict):
+        new_topics = {}
+    
+    # Now we can safely copy and merge
+    merged = existing_topics.copy()
+    
+    for parent_topic, subtopics in new_topics.items():
+        if parent_topic in merged:
+            # Ensure subtopics is a list
+            if not isinstance(subtopics, list):
+                subtopics = [subtopics] if subtopics else []
+            
+            # Ensure merged[parent_topic] is a list
+            if not isinstance(merged[parent_topic], list):
+                merged[parent_topic] = [merged[parent_topic]] if merged[parent_topic] else []
+            
+            # Add only new subtopics
+            existing_subtopics = set(merged[parent_topic])
+            for subtopic in subtopics:
+                if subtopic and subtopic not in existing_subtopics:
+                    merged[parent_topic].append(subtopic)
+        else:
+            # Add the new parent topic with all its subtopics
+            # Ensure subtopics is a list
+            if not isinstance(subtopics, list):
+                subtopics = [subtopics] if subtopics else []
+            merged[parent_topic] = subtopics
+    
+    return merged
 
 def auth_page():
     clear_session()
@@ -181,6 +289,7 @@ def auth_page():
 
 def chatbot_page():
     st.title("💬DSA Chatbot")
+    st.caption("🚀 A Streamlit chatbot powered by OpenAI")
     st.sidebar.text(f"Version: {CHATBOT_VERSION}" )
     st.sidebar.divider()
     st.sidebar.text(f"Welcome, {st.session_state['username']}!")
@@ -320,10 +429,10 @@ def chatbot_page():
                 st.markdown(message.content)
                 
     # Print Current Message State
-    hello = current_graph.get_state(langgraph_config)
-    print("Current State: ", hello)
-    if hello.values != {}:
-        print(hello.values["messages"])
+    # hello = current_graph.get_state(langgraph_config)
+    # print("Current State: ", hello)
+    # if hello.values != {}:
+    #     print(hello.values["messages"])
     # st.write(hello.get)
 
     # Accept user input
@@ -496,6 +605,8 @@ def chatbot_page():
         if should_analyze_user_level(user_id) and st.session_state["user_level"] not in ["", "null", None]:
             analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config)
 
+# Add this to the topics() function in streamlit_app.py
+
 def topics():
     st.title("📚 Topics You've Learned")
 
@@ -507,48 +618,118 @@ def topics():
     user_id = st.session_state["user_id"]
     
     if st.sidebar.button("Reset Topics", type='primary', help="Clear all topics learned by the user."):
-        db.update_user_topics(user_id, "{}")
+        db.update_user_topics(user_id, {})
         st.toast("All topics have been cleared.")
     
     # Retrieve topics from the database using the get_user_topics() function
     topics = db.get_user_topics(user_id)  # Expected to return a dict {parent_topic: [subtopics]}
-    topics = json.loads(topics) if topics else "{}"
+    # topics = json.loads(topics) if topics else "{}"
     
-    if topics != "{}":
-        print(f'{type(topics)}')
-        # Sidebar elements: filter and overview metric
-        st.sidebar.header("Filter Topics")
-        parent_topics = list(topics.keys())
-        selected_topic = st.sidebar.selectbox("Select a Parent Topic", parent_topics)
-        
-        # Display the subtopics for the selected parent topic using columns for layout
-        st.header(f"Subtopics under '{selected_topic.capitalize()}'")
-        subtopics = topics.get(selected_topic, [])
-        if subtopics:
-            col1, col2 = st.columns(2)
-            for i, subtopic in enumerate(subtopics):
-                if i % 2 == 0:
-                    col1.write(f"- {subtopic}")
-                else:
-                    col2.write(f"- {subtopic}")
+    # Create tabs for Topics and Recommendations
+    tab1, tab2 = st.tabs(["Your Topics", "Recommended Next Steps"])
+    
+    with tab1:
+        # Original topics display code
+        if topics != "{}":
+            # Sidebar elements: filter and overview metric
+            topics = json.loads(topics)
+            st.sidebar.header("Filter Topics")
+            parent_topics = list(topics.keys())
+            selected_topic = st.sidebar.selectbox("Select a Parent Topic", parent_topics)
+            
+            # Display the subtopics for the selected parent topic using columns for layout
+            st.header(f"Subtopics under '{selected_topic.capitalize()}'")
+            subtopics = topics.get(selected_topic, [])
+            if subtopics:
+                col1, col2 = st.columns(2)
+                for i, subtopic in enumerate(subtopics):
+                    if i % 2 == 0:
+                        col1.write(f"- {subtopic}")
+                    else:
+                        col2.write(f"- {subtopic}")
+            else:
+                st.info("No subtopics available for this topic.")
+            
+            # Expanders: Display all topics with their subtopics in a collapsible view
+            st.write("### All Topics Overview")
+            for parent, subs in topics.items():
+                with st.expander(parent.capitalize(), expanded=False):
+                    if subs:
+                        st.table([{"Subtopic": s} for s in subs])
+                    else:
+                        st.write("No subtopics available.")
+            
+            # Sidebar metric: Total number of subtopics learned
+            total_subtopics = sum(len(subs) for subs in topics.values())
+            st.sidebar.metric("Total Subtopics Learned", total_subtopics)
+            
         else:
-            st.info("No subtopics available for this topic.")
+            st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
+    
+    with tab2:
+        st.header("Recommended Next Steps")
         
-        # Expanders: Display all topics with their subtopics in a collapsible view
-        st.write("### All Topics Overview")
-        for parent, subs in topics.items():
-            with st.expander(parent.capitalize(), expanded=False):
-                if subs:
-                    st.table([{"Subtopic": s} for s in subs])
-                else:
-                    st.write("No subtopics available.")
-        
-        # Sidebar metric: Total number of subtopics learned
-        total_subtopics = sum(len(subs) for subs in topics.values())
-        st.sidebar.metric("Total Subtopics Learned", total_subtopics)
-        
-    else:
-        st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
+        # Check if we have recommendations in session state
+        if "recommended_topics" in st.session_state and st.session_state["recommended_topics"]:
+            recommendations = st.session_state["recommended_topics"]
+            
+            # Display recommendations in an engaging card-like format
+            for i, rec in enumerate(recommendations, 1):
+                topic_name = rec.get("topic", "").replace("_", " ").title()
+                
+                with st.container():
+                    st.markdown(
+                        f"""
+                        <div style="padding: 15px; border: 1px solid #f0f2f6; border-radius: 10px; margin-bottom: 15px;">
+                            <h3 style="margin-top: 0;">{i}. {topic_name}</h3>
+                            <p><i>{rec.get('description', '')}</i></p>
+                            <p><strong>Why:</strong> {rec.get('reason', '')}</p>
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
+                    )
+                    
+                    # if st.button(f"Learn about {topic_name}", key=f"topics_rec_{i}"):
+                    #     st.session_state["prefill_question"] = f"Tell me about {topic_name}"
+                    #     st.session_state["current_page"] = "Chatbot"
+                    #     st.rerun()
+            
+            # Add an option to generate new recommendations
+            st.write("---")
+            if st.button("Refresh Recommendations", key="refresh_topics_rec"):
+                # This will force a new analysis next time the analyser runs
+                st.session_state.pop("recommended_topics", None)
+                st.toast("You'll get new recommendations after your next chat interaction.")
+                
+        else:
+            st.info("Continue chatting with the DSA Bot to receive personalized topic recommendations based on your learning progress!")
+            
+            # Show some general recommendations based on user level
+            user_level = st.session_state.get("user_level", "beginner")
+            
+            st.write("### While you wait, here are some general recommendations for your level:")
+            
+            general_recs = {
+                "beginner": [
+                    "Arrays and Basic Data Structures",
+                    "Time Complexity Analysis",
+                    "Basic Sorting Algorithms"
+                ],
+                "intermediate": [
+                    "Binary Trees and Tree Traversal",
+                    "Hash Tables and Their Applications",
+                    "Graph Representations and Basic Algorithms"
+                ],
+                "advanced": [
+                    "Advanced Graph Algorithms",
+                    "Dynamic Programming Optimization",
+                    "Advanced Data Structures (Segment Trees, Fenwick Trees)"
+                ]
+            }
+            
+            # Display general recommendations
+            for rec in general_recs.get(user_level.lower(), general_recs["beginner"]):
+                st.write(f"- {rec}")
 
 if st.session_state["authentication_status"] in [None,False] or cookie_session_available is None:
     auth_page()

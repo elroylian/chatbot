@@ -55,15 +55,40 @@ def extract_json(response_text: str) -> Dict[str, Any]:
     Raises:
         ValueError: If no valid JSON is found.
     """
+    # First try direct JSON parsing
+    try:
+        return json.loads(response_text)
+    except json.JSONDecodeError:
+        # Clean the text and try different approaches
+        pass
+
     # Remove markdown formatting if present
     cleaned_text = response_text.replace('```json', '').replace('```', '')
+    
+    # Try to find JSON object pattern using regex
+    import re
     json_match = re.search(r'\{.*\}', cleaned_text, re.DOTALL)
+    
     if json_match:
         try:
             return json.loads(json_match.group(0))
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decoding error: {e}")
-    raise ValueError("Failed to extract valid JSON from response.")
+            logger.error(f"JSON decoding error after regex extraction: {e}")
+    
+    # Try another approach - find the first opening brace and last closing brace
+    try:
+        start_idx = response_text.find('{')
+        end_idx = response_text.rfind('}')
+        
+        if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+            json_substring = response_text[start_idx:end_idx+1]
+            return json.loads(json_substring)
+    except json.JSONDecodeError:
+        logger.error("JSON decoding error using brace extraction method")
+    
+    # If all else fails, return an empty dict
+    logger.error("Failed to extract valid JSON from response")
+    return {}
 
 def format_conversation_context(messages: List[BaseMessage]) -> str:
     """
@@ -145,19 +170,28 @@ STEP 5: Make a recommendation with confidence
   * Maintain: Appropriate engagement at current level
   * Demote: Consistent struggling with concepts at current level
 - Assign a confidence score (0-1) based on clarity of evidence
+
+STEP 6: Recommend next topics
+- Based on their current level and previously covered topics
+- Suggest 3 logical next topics they should learn
+- For each recommendation, include a brief reason why it's appropriate
 </EVALUATION_PROCESS>
 
 Create your assessment in JSON format with these fields:
 - current_level: The user's current assigned level
 - recommendation: Must be exactly one of: "Promote", "Maintain", or "Demote"
 - confidence: A number between 0.0 and 1.0 indicating your confidence
-- evidence: An array of quoted excerpts from the conversation supporting your assessment
-- reasoning: An array of reasons explaining your recommendation
 - topics: A nested object where keys are parent topics and values are arrays of subtopics
+- recommended_topics: An array of 3 objects, each containing:
+  * topic: The name of the recommended topic (use snake_case)
+  * reason: A brief explanation of why this topic is appropriate next
+  * description: A short, engaging description of what this topic is about
 
 Your response should be ONLY the valid JSON with nothing else.
 """
     
+    # Update this section in analyze_user_level function in analyser.py
+
     try:
         llm = get_llm()
         response = llm.invoke([HumanMessage(content=assessment_prompt)])
@@ -166,6 +200,20 @@ Your response should be ONLY the valid JSON with nothing else.
         # Attempt to extract and parse JSON from the response
         try:
             assessment_data = extract_json(raw_content)
+            
+            if not assessment_data:
+                # If extraction failed, create a fallback assessment
+                logger.warning("JSON extraction failed, using fallback assessment")
+                assessment_data = {
+                    "current_level": user_level,
+                    "recommendation": "Maintain",
+                    "confidence": 0.5,
+                    # "evidence": ["Assessment data extraction failed"],
+                    # "reasoning": ["Unable to parse LLM response"],
+                    "topics": previous_topics,
+                    "recommended_topics": []
+                }
+            
             current_level = assessment_data.get("current_level", user_level)
             recommendation = assessment_data.get("recommendation", "Maintain")
             confidence = float(assessment_data.get("confidence", 0.0))
@@ -177,29 +225,26 @@ Your response should be ONLY the valid JSON with nothing else.
             # If the confidence is below the threshold, default to maintaining the current level
             if confidence < CONFIDENCE_THRESHOLD:
                 logger.warning(f"Low confidence in level assessment: {confidence:.2f}")
-                fallback_data = {
-                    "current_level": current_level,
-                    "recommendation": "Maintain",
-                    "confidence": confidence,
-                    "topics": topics
-                }
-                return {
-                    "messages": [AIMessage(content=json.dumps(fallback_data))]
-                }
+                assessment_data["recommendation"] = "Maintain"
+                
+            # Ensure we have the recommended_topics field
+            if "recommended_topics" not in assessment_data:
+                assessment_data["recommended_topics"] = []
             
             return {
                 "messages": [AIMessage(content=json.dumps(assessment_data))]
             }
             
-        except ValueError as parse_error:
-            logger.error(f"Error parsing assessment response: {parse_error}")
+        except Exception as parse_error:
+            logger.error(f"Error in assessment processing: {parse_error}", exc_info=True)
             fallback_data = {
                 "current_level": user_level,
                 "recommendation": "Maintain",
                 "confidence": 0.0,
-                "evidence": ["Assessment error"],
-                "reasoning": ["Error in assessment process"],
-                "topics": {}
+                # "evidence": ["Assessment error"],
+                # "reasoning": ["Error in assessment process"],
+                "topics": previous_topics or {},
+                "recommended_topics": []
             }
             return {
                 "messages": [AIMessage(content=json.dumps(fallback_data))]
@@ -211,9 +256,10 @@ Your response should be ONLY the valid JSON with nothing else.
             "current_level": user_level,
             "recommendation": "Maintain",
             "confidence": 0.0,
-            "evidence": ["System error"],
-            "reasoning": ["Error during analysis"],
-            "topics": {}
+            # "evidence": ["System error"],
+            # "reasoning": ["Error during analysis"],
+            "topics": previous_topics or {},
+            "recommended_topics": []
         }
         return {
             "messages": [AIMessage(content=json.dumps(fallback_data))]
@@ -229,3 +275,8 @@ def create_analyser_workflow() -> StateGraph:
     return workflow
 
 analyser_workflow = create_analyser_workflow()
+
+"""
+- evidence: An array of quoted excerpts from the conversation supporting your assessment
+- reasoning: An array of reasons explaining your recommendation
+"""
