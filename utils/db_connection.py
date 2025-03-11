@@ -218,19 +218,34 @@ class ChatDatabase:
         conn.close()
         return result[0] if result else ""
 
-    def save_message(self, user_id: str, chat_id: str, role: str, content: str) -> bool:
+    def save_message(self, user_id: str, chat_id: str, role: str, content: str, timestamp=None) -> bool:
         """
         Save a chat message to the database.
-        Returns True if successful, False otherwise.
+        
+        Args:
+            user_id (str): The user's unique ID
+            chat_id (str): The chat session ID
+            role (str): The role of the message sender (user/assistant)
+            content (str): The message content
+            timestamp (datetime, optional): The timestamp of the message. If None, uses CURRENT_TIMESTAMP
+            
+        Returns:
+            bool: True if successful, False otherwise.
         """
         conn = self.create_connection()
         cursor = conn.cursor()
         
         try:
-            cursor.execute('''
-            INSERT INTO messages (user_id, chat_id, role, content)
-            VALUES (?, ?, ?, ?)
-            ''', (user_id, chat_id, role, content))
+            if timestamp:
+                cursor.execute('''
+                INSERT INTO messages (user_id, chat_id, role, content, timestamp)
+                VALUES (?, ?, ?, ?, datetime(?))
+                ''', (user_id, chat_id, role, content, timestamp))
+            else:
+                cursor.execute('''
+                INSERT INTO messages (user_id, chat_id, role, content)
+                VALUES (?, ?, ?, ?)
+                ''', (user_id, chat_id, role, content))
             
             conn.commit()
             return True
@@ -484,6 +499,7 @@ class ChatDatabase:
         Returns:
             bool: True if save succeeded, False otherwise
         """
+        conn = None
         try:
             # Convert recommendations to JSON string if needed
             if isinstance(recommendations, list):
@@ -495,29 +511,29 @@ class ChatDatabase:
             conn = self.create_connection()
             cursor = conn.cursor()
             
-            # cursor.execute(
-            #     "INSERT OR REPLACE INTO recommendations (user_id, recommendations, timestamp) VALUES (?, ?, CURRENT_TIMESTAMP)",
-            #     (user_id, recommendations_json)
-            # )
-            
             cursor.execute(
                 '''
                 INSERT INTO recommendations (user_id, recommendations, timestamp)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
+                    recommendations = excluded.recommendations,
                     timestamp = CURRENT_TIMESTAMP
+                WHERE excluded.recommendations != recommendations
                 ''', (user_id, recommendations_json)
             )
             
             conn.commit()
-            conn.close()
-            
             return True
             
         except Exception as e:
-            print(f"Error saving recommendations: {e}")
+            logger.error(f"Error saving recommendations for user {user_id}: {e}")
+            if conn:
+                conn.rollback()
             return False
-        
+        finally:
+            if conn:
+                conn.close()
+    
     def get_topic_recommendations_from_db(self, user_id):
         """
         Retrieve saved topic recommendations for a user.
@@ -528,6 +544,7 @@ class ChatDatabase:
         Returns:
             dict: Dictionary containing recommendations and timestamp
         """
+        conn = None
         try:
             conn = self.create_connection()
             cursor = conn.cursor()
@@ -538,7 +555,6 @@ class ChatDatabase:
             )
             
             result = cursor.fetchone()
-            conn.close()
             
             if result:
                 recommendations_json, timestamp = result
@@ -548,21 +564,24 @@ class ChatDatabase:
                         "recommendations": recommendations,
                         "timestamp": timestamp
                     }
-                except json.JSONDecodeError:
-                    print(f"Error decoding recommendations JSON for user {user_id}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error decoding recommendations JSON for user {user_id}: {e}")
             
-            # Return empty values if no results or error
+            # Return empty values if no results
             return {
                 "recommendations": [],
                 "timestamp": None
             }
                 
         except Exception as e:
-            print(f"Error getting recommendations: {e}")
+            logger.error(f"Error getting recommendations for user {user_id}: {e}")
             return {
                 "recommendations": [],
                 "timestamp": None
             }
+        finally:
+            if conn:
+                conn.close()
     
     def reset_recommendation_timestamp(self, user_id: str) -> bool:
         """Reset the last recommendation timestamp for a given user."""

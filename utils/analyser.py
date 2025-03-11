@@ -152,6 +152,13 @@ STEP 1: Analyze the content
 STEP 2: Extract topics and categorize
 - List all DSA topics explicitly mentioned
 - Organize them hierarchically (parent topics and subtopics)
+- Follow these topic normalization rules:
+  * Combine similar concepts under a single parent topic
+  * If a concept appears both as a parent and subtopic, make it a parent
+  * For similar topics (e.g., "Hash Tables: Chaining" and "Collisions: Chaining in Hash Tables"), 
+    combine them under the most appropriate parent category
+  * Use the most specific/accurate name for the topic
+  * Avoid creating separate entries for the same concept described differently
 - Compare with previously covered topics to identify new areas
 
 STEP 3: Assess conceptual depth
@@ -177,7 +184,25 @@ Create your assessment in JSON format with these fields:
 - current_level: The user's current assigned level
 - recommendation: Must be exactly one of: "Promote", "Maintain", or "Demote"
 - confidence: A number between 0.0 and 1.0 indicating your confidence
-- topics: A nested object where keys are parent topics and values are arrays of subtopics
+- topics: A nested object where:
+  * Keys are parent topics using snake_case (e.g., "hash_tables", "sorting_algorithms")
+  * Values are arrays of subtopics, also in snake_case
+  * Similar concepts should be merged under the most appropriate parent
+  * Each concept should appear in only one place in the hierarchy
+  * If a concept could be both a parent and subtopic, make it a parent
+  * Follow these naming conventions:
+    - Use descriptive but concise names (e.g., "binary_search_trees" not just "bst")
+    - Keep consistent terminology (e.g., always use "algorithms" not "algs")
+    - Include the type in the name when relevant (e.g., "search_algorithms", "tree_structures")
+  * Maintain these relationship rules:
+    - Group related algorithms with their primary data structure
+    - Keep optimization techniques with their base implementation
+    - Place analysis topics (time/space complexity) with their relevant structure/algorithm
+  * Example:
+    {
+      "hash_tables": ["open_addressing", "chaining", "collision_resolution"],
+      "sorting_algorithms": ["quicksort", "mergesort", "insertion_sort"]
+    }
 
 Your response should be ONLY the valid JSON with nothing else.
 """

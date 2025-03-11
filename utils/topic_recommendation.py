@@ -70,6 +70,7 @@ For each recommendation, provide:
 - reason: Why this topic is specifically appropriate for this student right now
 - value_proposition: What they'll gain by learning this topic
 - fun_fact: An interesting application or insight about this topic
+- difficulty: The recommended difficulty level for this topic (Beginner/Intermediate/Advanced), considering both the topic's inherent complexity and the student's current level
 
 Respond with exactly {max_recommendations} recommendations in a valid JSON array.
 Each object should have the fields described above.
@@ -92,7 +93,8 @@ Your response must be ONLY valid JSON with no introduction or explanation.
                 "description": rec.get("description", ""),
                 "reason": rec.get("reason", ""),
                 "value_proposition": rec.get("value_proposition", ""),
-                "fun_fact": rec.get("fun_fact", "")
+                "fun_fact": rec.get("fun_fact", ""),
+                "difficulty": rec.get("difficulty", "Beginner")
             }
             formatted_recommendations.append(formatted_rec)
         
@@ -166,21 +168,24 @@ def get_fallback_recommendations(user_level: str, max_count: int = 2) -> List[Di
                 "description": "Fundamental data structure for storing collections of elements in contiguous memory locations.",
                 "reason": "Essential foundation for all data structure learning",
                 "value_proposition": "Master the building block that most other data structures build upon",
-                "fun_fact": "Arrays power everything from image processing to game development"
+                "fun_fact": "Arrays power everything from image processing to game development",
+                "difficulty": "Beginner"
             },
             {
                 "topic": "linked_lists",
                 "description": "Chain-like data structure where elements connect through references.",
                 "reason": "Important contrast to arrays with different performance characteristics",
                 "value_proposition": "Learn efficient insertion and deletion operations",
-                "fun_fact": "Linked lists are used to implement file systems and music playlists"
+                "fun_fact": "Linked lists are used to implement file systems and music playlists",
+                "difficulty": "Beginner"
             },
             {
                 "topic": "binary_search",
                 "description": "Efficient algorithm for finding an item in a sorted list by repeatedly dividing the search interval.",
                 "reason": "Foundation for understanding algorithmic efficiency",
                 "value_proposition": "Understand logarithmic time complexity and divide-and-conquer approaches",
-                "fun_fact": "Binary search can find a name in a phone book of millions in just ~20 steps"
+                "fun_fact": "Binary search can find a name in a phone book of millions in just ~20 steps",
+                "difficulty": "Beginner"
             }
         ],
         "intermediate": [
@@ -189,21 +194,24 @@ def get_fallback_recommendations(user_level: str, max_count: int = 2) -> List[Di
                 "description": "Hierarchical data structure where each node has at most two children.",
                 "reason": "Fundamental for understanding hierarchical data representation",
                 "value_proposition": "Opens the door to efficient searching, sorting, and organizing data",
-                "fun_fact": "Binary trees are used in compression algorithms like Huffman coding"
+                "fun_fact": "Binary trees are used in compression algorithms like Huffman coding",
+                "difficulty": "Intermediate"
             },
             {
                 "topic": "hash_tables",
                 "description": "Data structure that implements an associative array using a hash function.",
                 "reason": "Critical for understanding efficient lookup operations",
                 "value_proposition": "Achieve constant-time operations for many common tasks",
-                "fun_fact": "Hash tables power dictionary implementations in most programming languages"
+                "fun_fact": "Hash tables power dictionary implementations in most programming languages",
+                "difficulty": "Intermediate"
             },
             {
                 "topic": "graph_algorithms",
                 "description": "Techniques for traversing, searching, and analyzing graph structures.",
                 "reason": "Essential for solving complex relationship-based problems",
                 "value_proposition": "Model and solve real-world network problems efficiently",
-                "fun_fact": "Graph algorithms power social networks, GPS navigation, and recommendation systems"
+                "fun_fact": "Graph algorithms power social networks, GPS navigation, and recommendation systems",
+                "difficulty": "Intermediate"
             }
         ],
         "advanced": [
@@ -212,21 +220,24 @@ def get_fallback_recommendations(user_level: str, max_count: int = 2) -> List[Di
                 "description": "Method for solving complex problems by breaking them into simpler subproblems.",
                 "reason": "Powerful paradigm for optimization problems",
                 "value_proposition": "Efficiently solve otherwise exponential-time problems",
-                "fun_fact": "Dynamic programming is used in DNA sequence alignment and resource allocation"
+                "fun_fact": "Dynamic programming is used in DNA sequence alignment and resource allocation",
+                "difficulty": "Advanced"
             },
             {
                 "topic": "advanced_graph_algorithms",
                 "description": "Sophisticated techniques for solving complex network problems like flow, matching, and shortest paths.",
                 "reason": "Extended applications of graph theory to complex problems",
                 "value_proposition": "Tackle industry-scale optimization challenges",
-                "fun_fact": "These algorithms power airline scheduling, internet routing, and supply chain optimization"
+                "fun_fact": "These algorithms power airline scheduling, internet routing, and supply chain optimization",
+                "difficulty": "Advanced"
             },
             {
                 "topic": "computational_geometry",
                 "description": "Algorithms for solving geometric problems like convex hulls, intersections, and proximity.",
                 "reason": "Specialized domain with unique algorithm approaches",
                 "value_proposition": "Apply DSA concepts to spatial reasoning and problems",
-                "fun_fact": "Powers computer graphics, robotics, and geographic information systems"
+                "fun_fact": "Powers computer graphics, robotics, and geographic information systems",
+                "difficulty": "Advanced"
             }
         ]
     }
