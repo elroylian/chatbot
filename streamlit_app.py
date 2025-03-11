@@ -22,7 +22,7 @@ from utils.level_manager import should_analyze_user_level, get_next_level, get_p
 
 ## TO DO
 # Error Handling ensure db does not save user message if there is an error in the response
-# Focus on analyser_workflow
+# Timestamp will be later than AIMessage if user prompt is saved later
 
 
 # Configure logging
@@ -32,8 +32,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CHATBOT_VERSION = "2.0.3"
+CHATBOT_VERSION = "2.1.0"
 DB_FILENAME = "chat.db"
+
+st.sidebar.markdown(f"<div style='margin-bottom: 15px;'><span style='font-weight: bold;'>Version:</span> <code>{CHATBOT_VERSION}</code></div>", unsafe_allow_html=True)
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
 os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
@@ -74,13 +76,30 @@ db = get_database()
 
 cookie_session_available = authenticator.cookie_controller.get_cookie()
 
-if(cookie_session_available):
-    st.session_state["authentication_status"] = True
-    user_data = db.get_user_by_username(cookie_session_available["username"])
-    roles = json.loads(user_data["roles"])
-    st.session_state["roles"] = roles["roles"]
-    st.session_state["email"] = user_data["email"]
-    st.session_state["username"] = user_data["username"]
+# Set default authentication status
+if "authentication_status" not in st.session_state:
+    st.session_state["authentication_status"] = None
+
+if cookie_session_available:
+    try:
+        username = cookie_session_available["username"]
+        user_data = db.get_user_by_username(username)
+        
+        if user_data:
+            st.session_state["authentication_status"] = True
+            roles = json.loads(user_data["roles"])
+            st.session_state["roles"] = roles["roles"] 
+            st.session_state["email"] = user_data["email"]
+            st.session_state["username"] = user_data["username"]
+        else:
+            # User not found in database, clear cookie
+            authenticator.cookie_controller.clear_cookie()
+            st.session_state["authentication_status"] = None
+            
+            
+    except Exception as e:
+        st.error(f"Error loading user data: {e}")
+        st.session_state["authentication_status"] = None
 
 def clear_session():
     # Reset chat history when user logs out
@@ -151,22 +170,22 @@ def analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_confi
                 merged_topics = merge_topics(previous_topics, topics)
                 db.update_user_topics(user_id, merged_topics)
                 
-                # Store recommended topics in session state for displaying later
-                if "recommended_topics" in analysis_data and analysis_data["recommended_topics"]:
-                    st.session_state["recommended_topics"] = analysis_data["recommended_topics"]
+                # # Store recommended topics in session state for displaying later
+                # if "recommended_topics" in analysis_data and analysis_data["recommended_topics"]:
+                #     st.session_state["recommended_topics"] = analysis_data["recommended_topics"]
                     
-                    # Display the recommendations in a small sidebar panel
-                    with st.sidebar.expander("Topic Recommendations", expanded=True):
-                        st.write("Based on your progress, consider exploring:")
-                        for i, rec in enumerate(analysis_data["recommended_topics"], 1):
-                            topic_name = rec.get("topic", "").replace("_", " ").title()
-                            if topic_name:
-                                st.write(f"**{i}. {topic_name}**")
-                                if "reason" in rec:
-                                    st.write(f"_{rec['reason']}_")
-                                if st.button(f"Learn about {topic_name}", key=f"rec_{i}"):
-                                    st.session_state["prefill_question"] = f"Tell me about {topic_name}"
-                                    st.rerun()
+                #     # Display the recommendations in a small sidebar panel
+                #     with st.sidebar.expander("Topic Recommendations", expanded=True):
+                #         st.write("Based on your progress, consider exploring:")
+                #         for i, rec in enumerate(analysis_data["recommended_topics"], 1):
+                #             topic_name = rec.get("topic", "").replace("_", " ").title()
+                #             if topic_name:
+                #                 st.write(f"**{i}. {topic_name}**")
+                #                 if "reason" in rec:
+                #                     st.write(f"_{rec['reason']}_")
+                #                 if st.button(f"Learn about {topic_name}", key=f"rec_{i}"):
+                #                     st.session_state["prefill_question"] = f"Tell me about {topic_name}"
+                #                     st.rerun()
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Error parsing analysis message as JSON: {e}")
@@ -289,18 +308,14 @@ def auth_page():
 
 def chatbot_page():
     st.title("💬DSA Chatbot")
-    st.caption("🚀 A Streamlit chatbot powered by OpenAI")
-    st.sidebar.text(f"Version: {CHATBOT_VERSION}" )
-    st.sidebar.divider()
     st.sidebar.text(f"Welcome, {st.session_state['username']}!")
-    st.sidebar.write("Your account")
     
     authenticator.login('unrendered',clear_on_submit=True)
     
     current_graph = workflow.compile(memory)
     
-    if st.session_state.get('authentication_status'):
-        authenticator.logout('Logout','sidebar',key='main',callback=clear_session())
+    # if st.session_state.get('authentication_status'):
+    #     authenticator.logout('Logout','sidebar',key='main',callback=clear_session())
     
     # Initialize session variables
     if "messages" not in st.session_state:
@@ -326,6 +341,12 @@ def chatbot_page():
         # Initialize the language graph configuration
         langgraph_config = {"configurable": {"thread_id": user_id}}
         
+        # Remember to remove this
+        # if st.button("Get Message State"):
+        #     messages = current_graph.get_state(langgraph_config)
+        #     st.write(messages)
+        
+        
         # If chat history exists, load it into the messages list
         if chat_history:
             if st.session_state["messages"] == []:
@@ -347,30 +368,31 @@ def chatbot_page():
             user_level = st.session_state["user_level"]
         else:
             st.session_state["user_level"] = ""
+            
+        # Add file uploader to sidebar based on user assessment status
+        if st.session_state["user_level"] in ["", "null", None]:
+            st.info("Start chatting to complete your initial assessment.")
+        
     else:
         st.error("User not found in the database.")
         st.stop()
-    
-    # Add sidebar options
-    st.sidebar.write("Options")
-    
-    # Clear chat history
-    if st.sidebar.button("Clear Chat History",type='primary'):
-        # st.session_state["llm_chat_history"] = []
-        st.session_state["messages"] = []
         
-        # Reset all graph states
-        memory.storage.clear()
-        current_graph.update_state(values = {"messages": []}, config = langgraph_config)
-        
-        db.clear_chat_history(user_id, chat_id)
-        st.toast("Chat history cleared successfully.",icon="✅")
-        analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config)
-
-    # Add file uploader to sidebar based on user assessment status
-    if st.session_state["user_level"] in ["", "null", None]:
-        st.sidebar.warning("Complete your initial assessment to unlock file uploads. Start by asking a question in the chat.")
-    else:
+    if st.session_state["user_level"].lower() in ["beginner", "intermediate", "advanced"]:
+        # Add sidebar options
+        st.sidebar.write("Options")
+        # Clear chat history
+        if st.sidebar.button("Clear Chat History",type='primary'):
+            # st.session_state["llm_chat_history"] = []
+            st.session_state["messages"] = []
+            
+            # Reset all graph states
+            memory.storage.clear()
+            current_graph.update_state(values = {"messages": []}, config = langgraph_config)
+            
+            db.clear_chat_history(user_id, chat_id)
+            st.toast("Chat history cleared successfully.",icon="✅")
+            analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config)
+            
         if "uploader_key" not in st.session_state:
             st.session_state["uploader_key"] = 0
         
@@ -421,19 +443,13 @@ def chatbot_page():
 
     with st.sidebar:
         tester_function()
+        pass
     
     # Display chat messages from history on app rerun
     if "messages" in st.session_state:
         for message in st.session_state.messages:
             with st.chat_message("user" if isinstance(message, HumanMessage) else "assistant"):
                 st.markdown(message.content)
-                
-    # Print Current Message State
-    # hello = current_graph.get_state(langgraph_config)
-    # print("Current State: ", hello)
-    # if hello.values != {}:
-    #     print(hello.values["messages"])
-    # st.write(hello.get)
 
     # Accept user input
     if prompt := st.chat_input("What is an Array?"):
@@ -464,7 +480,7 @@ def chatbot_page():
                     }
                 
                 current_graph = workflow.compile(memory)
-                current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                # current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                 output = current_graph.invoke(input_dict, langgraph_config)
                 
                 response = output["messages"][-1].content
@@ -500,7 +516,7 @@ def chatbot_page():
                             st.session_state["messages"] = [AIMessage(content=full_response)]
                             
                             # Clear assessment chat
-                            current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                            # current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                             
                             db.clear_chat_history(user_id, chat_id)
                             db.save_message(user_id, chat_id, "assistant", full_response)
@@ -558,7 +574,7 @@ def chatbot_page():
                         
                         # Run the workflow
                         current_graph = document_text_workflow.compile(memory)
-                        current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                        # current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                         response = current_graph.invoke(state, langgraph_config)
                         
                         # Get the final message and handle response
@@ -587,7 +603,7 @@ def chatbot_page():
                         }
                         
                         current_graph = text_workflow.compile(memory)
-                        current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
+                        # current_graph.update_state(values = {"messages": st.session_state["messages"]}, config = langgraph_config)
                         
                         output = current_graph.invoke(inputs, langgraph_config)
                         response = output["messages"][-1].content
@@ -625,123 +641,339 @@ def topics():
     topics = db.get_user_topics(user_id)  # Expected to return a dict {parent_topic: [subtopics]}
     # topics = json.loads(topics) if topics else "{}"
     
-    # Create tabs for Topics and Recommendations
-    tab1, tab2 = st.tabs(["Your Topics", "Recommended Next Steps"])
-    
-    with tab1:
-        # Original topics display code
-        if topics != "{}":
-            # Sidebar elements: filter and overview metric
-            topics = json.loads(topics)
-            st.sidebar.header("Filter Topics")
-            parent_topics = list(topics.keys())
-            selected_topic = st.sidebar.selectbox("Select a Parent Topic", parent_topics)
-            
-            # Display the subtopics for the selected parent topic using columns for layout
-            st.header(f"Subtopics under '{selected_topic.capitalize()}'")
-            subtopics = topics.get(selected_topic, [])
-            if subtopics:
-                col1, col2 = st.columns(2)
-                for i, subtopic in enumerate(subtopics):
-                    if i % 2 == 0:
-                        col1.write(f"- {subtopic}")
-                    else:
-                        col2.write(f"- {subtopic}")
-            else:
-                st.info("No subtopics available for this topic.")
-            
-            # Expanders: Display all topics with their subtopics in a collapsible view
-            st.write("### All Topics Overview")
-            for parent, subs in topics.items():
-                with st.expander(parent.capitalize(), expanded=False):
-                    if subs:
-                        st.table([{"Subtopic": s} for s in subs])
-                    else:
-                        st.write("No subtopics available.")
-            
-            # Sidebar metric: Total number of subtopics learned
-            total_subtopics = sum(len(subs) for subs in topics.values())
-            st.sidebar.metric("Total Subtopics Learned", total_subtopics)
-            
-        else:
-            st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
-    
-    with tab2:
-        st.header("Recommended Next Steps")
+    if topics != "{}":
+        # Sidebar elements: filter and overview metric
+        topics = json.loads(topics)
+        st.sidebar.header("Filter Topics")
+        parent_topics = list(topics.keys())
+        selected_topic = st.sidebar.selectbox("Select a Parent Topic", parent_topics)
         
-        # Check if we have recommendations in session state
-        if "recommended_topics" in st.session_state and st.session_state["recommended_topics"]:
-            recommendations = st.session_state["recommended_topics"]
-            
-            # Display recommendations in an engaging card-like format
-            for i, rec in enumerate(recommendations, 1):
-                topic_name = rec.get("topic", "").replace("_", " ").title()
-                
-                with st.container():
-                    st.markdown(
-                        f"""
-                        <div style="padding: 15px; border: 1px solid #f0f2f6; border-radius: 10px; margin-bottom: 15px;">
-                            <h3 style="margin-top: 0;">{i}. {topic_name}</h3>
-                            <p><i>{rec.get('description', '')}</i></p>
-                            <p><strong>Why:</strong> {rec.get('reason', '')}</p>
-                        </div>
-                        """, 
-                        unsafe_allow_html=True
-                    )
-                    
-                    # if st.button(f"Learn about {topic_name}", key=f"topics_rec_{i}"):
-                    #     st.session_state["prefill_question"] = f"Tell me about {topic_name}"
-                    #     st.session_state["current_page"] = "Chatbot"
-                    #     st.rerun()
-            
-            # Add an option to generate new recommendations
-            st.write("---")
-            if st.button("Refresh Recommendations", key="refresh_topics_rec"):
-                # This will force a new analysis next time the analyser runs
-                st.session_state.pop("recommended_topics", None)
-                st.toast("You'll get new recommendations after your next chat interaction.")
-                
+        # Display the subtopics for the selected parent topic using columns for layout
+        st.header(f"Subtopics under '{selected_topic.capitalize()}'")
+        subtopics = topics.get(selected_topic, [])
+        if subtopics:
+            col1, col2 = st.columns(2)
+            for i, subtopic in enumerate(subtopics):
+                if i % 2 == 0:
+                    col1.write(f"- {subtopic}")
+                else:
+                    col2.write(f"- {subtopic}")
         else:
-            st.info("Continue chatting with the DSA Bot to receive personalized topic recommendations based on your learning progress!")
+            st.info("No subtopics available for this topic.")
+        
+        # Expanders: Display all topics with their subtopics in a collapsible view
+        st.write("### All Topics Overview")
+        for parent, subs in topics.items():
+            with st.expander(parent.capitalize(), expanded=False):
+                if subs:
+                    st.table([{"Subtopic": s} for s in subs])
+                else:
+                    st.write("No subtopics available.")
+        
+        # Sidebar metric: Total number of subtopics learned
+        total_subtopics = sum(len(subs) for subs in topics.values())
+        st.sidebar.metric("Total Subtopics Learned", total_subtopics)
+        
+    else:
+        st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
+    
+    # with tab2:
+    #     st.header("Recommended Next Steps")
+        
+    #     # Check if we have recommendations in session state
+    #     if "recommended_topics" in st.session_state and st.session_state["recommended_topics"]:
+    #         recommendations = st.session_state["recommended_topics"]
             
-            # Show some general recommendations based on user level
-            user_level = st.session_state.get("user_level", "beginner")
+    #         # Display recommendations in an engaging card-like format
+    #         for i, rec in enumerate(recommendations, 1):
+    #             topic_name = rec.get("topic", "").replace("_", " ").title()
+                
+    #             with st.container():
+    #                 st.markdown(
+    #                     f"""
+    #                     <div style="padding: 15px; border: 1px solid #f0f2f6; border-radius: 10px; margin-bottom: 15px;">
+    #                         <h3 style="margin-top: 0;">{i}. {topic_name}</h3>
+    #                         <p><i>{rec.get('description', '')}</i></p>
+    #                         <p><strong>Why:</strong> {rec.get('reason', '')}</p>
+    #                     </div>
+    #                     """, 
+    #                     unsafe_allow_html=True
+    #                 )
+                    
+    #                 # if st.button(f"Learn about {topic_name}", key=f"topics_rec_{i}"):
+    #                 #     st.session_state["prefill_question"] = f"Tell me about {topic_name}"
+    #                 #     st.session_state["current_page"] = "Chatbot"
+    #                 #     st.rerun()
             
-            st.write("### While you wait, here are some general recommendations for your level:")
+    #         # Add an option to generate new recommendations
+    #         st.write("---")
+    #         if st.button("Refresh Recommendations", key="refresh_topics_rec"):
+    #             # This will force a new analysis next time the analyser runs
+    #             st.session_state.pop("recommended_topics", None)
+    #             st.toast("You'll get new recommendations after your next chat interaction.")
+                
+    #     else:
+    #         st.info("Continue chatting with the DSA Bot to receive personalized topic recommendations based on your learning progress!")
             
-            general_recs = {
-                "beginner": [
-                    "Arrays and Basic Data Structures",
-                    "Time Complexity Analysis",
-                    "Basic Sorting Algorithms"
-                ],
-                "intermediate": [
-                    "Binary Trees and Tree Traversal",
-                    "Hash Tables and Their Applications",
-                    "Graph Representations and Basic Algorithms"
-                ],
-                "advanced": [
-                    "Advanced Graph Algorithms",
-                    "Dynamic Programming Optimization",
-                    "Advanced Data Structures (Segment Trees, Fenwick Trees)"
-                ]
-            }
+    #         # Show some general recommendations based on user level
+    #         user_level = st.session_state.get("user_level", "beginner")
             
-            # Display general recommendations
-            for rec in general_recs.get(user_level.lower(), general_recs["beginner"]):
-                st.write(f"- {rec}")
+    #         st.write("### While you wait, here are some general recommendations for your level:")
+            
+    #         general_recs = {
+    #             "beginner": [
+    #                 "Arrays and Basic Data Structures",
+    #                 "Time Complexity Analysis",
+    #                 "Basic Sorting Algorithms"
+    #             ],
+    #             "intermediate": [
+    #                 "Binary Trees and Tree Traversal",
+    #                 "Hash Tables and Their Applications",
+    #                 "Graph Representations and Basic Algorithms"
+    #             ],
+    #             "advanced": [
+    #                 "Advanced Graph Algorithms",
+    #                 "Dynamic Programming Optimization",
+    #                 "Advanced Data Structures (Segment Trees, Fenwick Trees)"
+    #             ]
+    #         }
+            
+    #         # Display general recommendations
+    #         for rec in general_recs.get(user_level.lower(), general_recs["beginner"]):
+    #             st.write(f"- {rec}")
 
-if st.session_state["authentication_status"] in [None,False] or cookie_session_available is None:
+import time
+from utils.topic_recommendation import get_topic_recommendations, format_recommendations_for_display
+def recommendations_page():
+    """Render the topic recommendations page."""
+    st.title("📚 Learning Recommendations")
+    
+    # Ensure the user is logged in and has a user_id in session state
+    if st.session_state.get("authentication_status") in [None, False]:
+        st.error("User not logged in. Please log in to view recommendations.")
+        st.stop()
+
+    user_id = st.session_state.get("user_id")
+    user_level = st.session_state.get("user_level", "beginner")
+    
+    # Display user level with enhanced styling
+    st.markdown(f"""
+    <div style="margin-bottom: 1.5rem;">
+        <span style="font-weight: 500;">Your current level:</span> 
+        <span style="background-color: #8c52ff; padding: 3px 10px; border-radius: 12px; font-weight: 600;">{user_level.capitalize()}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Optional controls for recommendation settings
+    with st.expander("Recommendation Settings", expanded=False):
+        num_recommendations = st.slider(
+            "Number of recommendations", 
+            min_value=1, 
+            max_value=5, 
+            value=2,
+            help="Choose how many topic recommendations to display"
+        )
+    
+    topics_str = db.get_user_topics(user_id)
+    
+    # Convert string representation to dictionary
+    try:
+        if isinstance(topics_str, str):
+            topics = json.loads(topics_str) if topics_str and topics_str != "{}" else {}
+        else:
+            topics = topics_str or {}
+    except json.JSONDecodeError:
+        st.warning("Error loading your topic history. Showing general recommendations instead.")
+        topics = {}
+    
+    # Show topics learned so far
+    if topics:
+        with st.expander("Topics You've Learned", expanded=True):
+            topic_count = sum(len(subtopics) for subtopics in topics.values() if isinstance(subtopics, list)) + len(topics)
+            st.write(f"You've explored **{topic_count}** topics and subtopics so far!")
+            
+            for parent, subtopics in topics.items():
+                parent_name = parent.replace("_", " ").capitalize()
+                st.write(f"**{parent_name}**")
+                if isinstance(subtopics, list) and subtopics:
+                    st.write(", ".join([sub.replace("_", " ").capitalize() for sub in subtopics]))
+    else:
+        st.info("You haven't explored any topics yet. Start chatting to build your knowledge profile!")
+    
+    # Get and display recommendations
+    # Check if we have saved recommendations in the database
+    saved_data = db.get_topic_recommendations_from_db(user_id)
+    saved_recommendations = saved_data.get("recommendations", [])
+    saved_timestamp = saved_data.get("timestamp")
+    
+    # Determine if recommendations are stale
+    recommendations_stale = False
+    if saved_timestamp:
+        # Convert SQLite timestamp string to datetime object if needed
+        try:
+            import datetime
+            if isinstance(saved_timestamp, str):
+                # Parse the database timestamp (assumed to be UTC)
+                timestamp_dt = datetime.datetime.strptime(saved_timestamp, "%Y-%m-%d %H:%M:%S")
+                # Make it timezone-aware by marking it as UTC
+                timestamp_dt = timestamp_dt.replace(tzinfo=datetime.timezone.utc)
+                
+                # Get current time in UTC
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                
+                # Now both datetimes are UTC-aware and can be compared properly
+                time_diff = now_utc - timestamp_dt
+                
+                # If recommendations are older than 24 hours, consider them stale
+                recommendations_stale = time_diff.total_seconds() > 86400  # 24 hours
+            else:
+                # If timestamp is a number, compare directly (assuming it's a unix timestamp)
+                recommendations_stale = (time.time() - saved_timestamp) > 86400
+        except (ValueError, TypeError) as e:
+            # Log the specific error for debugging
+            print(f"Error parsing timestamp: {e}, value: {saved_timestamp}")
+            # If timestamp can't be parsed, consider recommendations stale
+            recommendations_stale = True
+    else:
+        # No timestamp means no recommendations, so they're stale
+        recommendations_stale = True
+    
+    # Also check if the count of recommendations matches the requested count
+    if saved_recommendations and len(saved_recommendations) != num_recommendations:
+        recommendations_stale = True
+    
+    # Use saved recommendations if available and not stale
+    if saved_recommendations and not recommendations_stale:
+        recommendations = saved_recommendations
+        
+        # Show info about when these were generated
+        if isinstance(saved_timestamp, str):
+            import datetime
+            try:
+                # Parse the database timestamp (UTC)
+                timestamp_dt = datetime.datetime.strptime(saved_timestamp, "%Y-%m-%d %H:%M:%S")
+                timestamp_dt = timestamp_dt.replace(tzinfo=datetime.timezone.utc)
+                
+                # Get current time in UTC for comparison
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                
+                # Calculate time difference
+                time_diff = now_utc - timestamp_dt
+                hours_ago = int(time_diff.total_seconds() / 3600)
+                
+                # Format for display
+                if hours_ago < 1:
+                    time_str = "less than an hour ago"
+                elif hours_ago == 1:
+                    time_str = "1 hour ago"
+                elif hours_ago < 24:
+                    time_str = f"{hours_ago} hours ago"
+                else:
+                    days = hours_ago // 24
+                    time_str = f"{days} day{'s' if days > 1 else ''} ago"
+                
+                st.info(f"Using recommendations generated {time_str}. Click 'Refresh' for fresh suggestions.", icon="ℹ️")
+            except (ValueError, TypeError) as e:
+                print(f"Error formatting timestamp: {e}")
+                st.info("Using saved recommendations. Click 'Refresh' for fresh suggestions.", icon="ℹ️")
+        else:
+            st.info("Using saved recommendations. Click 'Refresh' for fresh suggestions.", icon="ℹ️")
+    else:
+        # Generate new recommendations
+        with st.spinner("Analyzing your learning history..."):
+            recommendations = get_topic_recommendations(
+                topics, 
+                user_level, 
+                max_recommendations=num_recommendations
+            )
+            
+            # Save the new recommendations to the database
+            db.save_topic_recommendations(user_id, recommendations)
+            st.success("Generated fresh recommendations based on your current progress!")
+    
+    if recommendations:
+        # Add a refresh button
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            st.markdown("### Your Next Learning Adventures")
+        with col2:
+            refresh_clicked = st.button("Refresh", key="refresh_recs")
+
+        # Move the spinner outside the column structure
+        if refresh_clicked:
+            # Generate new recommendations
+            with st.spinner("Creating fresh recommendations..."):
+                new_recommendations = get_topic_recommendations(
+                    topics,
+                    user_level,
+                    max_recommendations=num_recommendations
+                )
+                db.save_topic_recommendations(user_id, new_recommendations)
+            st.toast("Recommendations refreshed!", icon="✅")
+            st.rerun()
+        
+        # Display recommendations in an engaging card-like format
+        for i, rec in enumerate(recommendations, 1):
+            topic_name = rec.get("topic", "").replace("_", " ").title()
+            
+            with st.container():
+                st.markdown(
+                    f"""
+                    <div style="padding: 15px; border: 1px solid #f0f2f6; border-radius: 10px; margin-bottom: 15px;">
+                        <h3 style="margin-top: 0;">{i}. {topic_name}</h3>
+                        <p><i>{rec.get('description', '')}</i></p>
+                        <p><strong>Why:</strong> {rec.get('reason', '')}</p>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+                
+                # Create columns for value and fun fact
+                # col1, col2 = st.columns(2)
+                # with col1:
+                #     if "value_proposition" in rec and rec["value_proposition"]:
+                #         st.markdown(f"**Value:** {rec['value_proposition']}")
+                
+                # with col2:
+                #     if "fun_fact" in rec and rec["fun_fact"]:
+                #         st.markdown(f"**Fun fact:** {rec['fun_fact']}")
+                
+    else:
+        st.warning("Unable to generate recommendations at this time. Please try again later.")
+        
+        # Add a retry button
+        if st.button("Try Again"):
+            st.rerun()
+
+if st.session_state["authentication_status"] in [None,False]:
     auth_page()
     
 else:   
     page_names_to_funcs = {
     "Chatbot": chatbot_page,
     "Topics": topics,
+    "Topic Recommendations": recommendations_page,
     }
     
+    if "user_level" not in st.session_state:
+        user_info = db.get_user_by_email(st.session_state['email'])
+        if user_info:
+            st.session_state["user_level"] = user_info.get("user_level", "")
+        else:
+            st.session_state["user_level"] = ""
+    
+    if st.session_state["user_level"].lower() in ["beginner", "intermediate", "advanced"]:
+        page_name = st.sidebar.selectbox("Select a page", list(page_names_to_funcs.keys()))
+    else:
+        page_name = "Chatbot"
 
-    page_name = st.sidebar.selectbox("Select a page", list(page_names_to_funcs.keys()))
+    # Place logout button in sidebar
+    if authenticator.logout('Logout','sidebar',key='main',callback=clear_session()):
+        clear_session()
+        st.rerun()
+    st.sidebar.divider()
+    
+    # Render the selected page
     page_names_to_funcs[page_name]()
 
         

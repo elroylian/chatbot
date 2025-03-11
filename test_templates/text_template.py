@@ -881,17 +881,15 @@ def generate_direct_response(state: AgentState) -> Dict[str, Any]:
         llm = get_llm(temperature=0.7)
         chain = prompt | llm | StrOutputParser()
         
-        # Use a note instead of retrieved content to guide the model
-        knowledge_note = "Note: Please answer this question based on your knowledge of data structures and algorithms without external references."
-        
         response = chain.invoke({
-            "context": knowledge_note,
             "question": question,
             "level_requirements": level_requirements,
             "conversation_history": conversation_history
         })
         
         logger.info(f"Generated direct response for user level: {user_level}")
+        
+        from langchain_core.messages import RemoveMessage
         
         return {
             "messages": [AIMessage(content=response)], 

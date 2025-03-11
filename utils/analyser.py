@@ -171,10 +171,6 @@ STEP 5: Make a recommendation with confidence
   * Demote: Consistent struggling with concepts at current level
 - Assign a confidence score (0-1) based on clarity of evidence
 
-STEP 6: Recommend next topics
-- Based on their current level and previously covered topics
-- Suggest 3 logical next topics they should learn
-- For each recommendation, include a brief reason why it's appropriate
 </EVALUATION_PROCESS>
 
 Create your assessment in JSON format with these fields:
@@ -182,10 +178,6 @@ Create your assessment in JSON format with these fields:
 - recommendation: Must be exactly one of: "Promote", "Maintain", or "Demote"
 - confidence: A number between 0.0 and 1.0 indicating your confidence
 - topics: A nested object where keys are parent topics and values are arrays of subtopics
-- recommended_topics: An array of 3 objects, each containing:
-  * topic: The name of the recommended topic (use snake_case)
-  * reason: A brief explanation of why this topic is appropriate next
-  * description: A short, engaging description of what this topic is about
 
 Your response should be ONLY the valid JSON with nothing else.
 """
@@ -211,7 +203,6 @@ Your response should be ONLY the valid JSON with nothing else.
                     # "evidence": ["Assessment data extraction failed"],
                     # "reasoning": ["Unable to parse LLM response"],
                     "topics": previous_topics,
-                    "recommended_topics": []
                 }
             
             current_level = assessment_data.get("current_level", user_level)
@@ -227,9 +218,6 @@ Your response should be ONLY the valid JSON with nothing else.
                 logger.warning(f"Low confidence in level assessment: {confidence:.2f}")
                 assessment_data["recommendation"] = "Maintain"
                 
-            # Ensure we have the recommended_topics field
-            if "recommended_topics" not in assessment_data:
-                assessment_data["recommended_topics"] = []
             
             return {
                 "messages": [AIMessage(content=json.dumps(assessment_data))]
@@ -244,7 +232,6 @@ Your response should be ONLY the valid JSON with nothing else.
                 # "evidence": ["Assessment error"],
                 # "reasoning": ["Error in assessment process"],
                 "topics": previous_topics or {},
-                "recommended_topics": []
             }
             return {
                 "messages": [AIMessage(content=json.dumps(fallback_data))]
@@ -259,7 +246,6 @@ Your response should be ONLY the valid JSON with nothing else.
             # "evidence": ["System error"],
             # "reasoning": ["Error during analysis"],
             "topics": previous_topics or {},
-            "recommended_topics": []
         }
         return {
             "messages": [AIMessage(content=json.dumps(fallback_data))]

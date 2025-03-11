@@ -64,6 +64,16 @@ class ChatDatabase:
         )
 
         ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS recommendations (
+                user_id TEXT PRIMARY KEY,
+                recommendations TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+
 
         conn.commit()
         conn.close()
@@ -462,6 +472,112 @@ class ChatDatabase:
             return False
         finally:
             conn.close()
-
-
-
+    
+    def save_topic_recommendations(self, user_id: str, recommendations):
+        """
+        Save topic recommendations for a user.
+        
+        Args:
+            user_id (str): The user's unique ID
+            recommendations (list or str): List of recommendation objects or JSON string
+            
+        Returns:
+            bool: True if save succeeded, False otherwise
+        """
+        try:
+            # Convert recommendations to JSON string if needed
+            if isinstance(recommendations, list):
+                recommendations_json = json.dumps(recommendations)
+            else:
+                recommendations_json = recommendations
+                
+            # Save to the database with current timestamp
+            conn = self.create_connection()
+            cursor = conn.cursor()
+            
+            # cursor.execute(
+            #     "INSERT OR REPLACE INTO recommendations (user_id, recommendations, timestamp) VALUES (?, ?, CURRENT_TIMESTAMP)",
+            #     (user_id, recommendations_json)
+            # )
+            
+            cursor.execute(
+                '''
+                INSERT INTO recommendations (user_id, recommendations, timestamp)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    timestamp = CURRENT_TIMESTAMP
+                ''', (user_id, recommendations_json)
+            )
+            
+            conn.commit()
+            conn.close()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error saving recommendations: {e}")
+            return False
+        
+    def get_topic_recommendations_from_db(self, user_id):
+        """
+        Retrieve saved topic recommendations for a user.
+        
+        Args:
+            user_id (str): The user's unique ID
+            
+        Returns:
+            dict: Dictionary containing recommendations and timestamp
+        """
+        try:
+            conn = self.create_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                "SELECT recommendations, timestamp FROM recommendations WHERE user_id = ?",
+                (user_id,)
+            )
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                recommendations_json, timestamp = result
+                try:
+                    recommendations = json.loads(recommendations_json)
+                    return {
+                        "recommendations": recommendations,
+                        "timestamp": timestamp
+                    }
+                except json.JSONDecodeError:
+                    print(f"Error decoding recommendations JSON for user {user_id}")
+            
+            # Return empty values if no results or error
+            return {
+                "recommendations": [],
+                "timestamp": None
+            }
+                
+        except Exception as e:
+            print(f"Error getting recommendations: {e}")
+            return {
+                "recommendations": [],
+                "timestamp": None
+            }
+    
+    def reset_recommendation_timestamp(self, user_id: str) -> bool:
+        """Reset the last recommendation timestamp for a given user."""
+        conn = self.create_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                UPDATE recommendations
+                SET timestamp = NULL
+                WHERE user_id = ?
+            ''', (user_id,))
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Database error while resetting analysis timestamp: {e}")
+            return False
+        finally:
+            conn.close()
