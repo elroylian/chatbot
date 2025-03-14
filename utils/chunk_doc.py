@@ -213,7 +213,7 @@ def get_retriever():
             'k': 15,        # Increased to get more complete context
             'fetch_k': 40,  # Larger initial pool
             'lambda_mult': 0.7,  # Balance between relevance and diversity
-            'score_threshold': 0.65  # Slightly lower to catch related chunks
+            'score_threshold': 0.75  # Slightly lower to catch related chunks
         },
     )
     
