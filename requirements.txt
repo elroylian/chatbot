@@ -6,7 +6,8 @@ langchain-openai
 sentence-transformers
 langchain-ollama
 langchain-milvus
-langgraph 
+langchain-community
+langgraph
 langgraph-checkpoint-sqlite
 langsmith
 rank_bm25
