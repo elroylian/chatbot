@@ -110,7 +110,6 @@ from pathlib import Path
 from utils.custom_embeddings import MyEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter as Rec
 import streamlit as st
-from langchain_astradb import AstraDBVectorStore
 from langchain_core.documents import Document
 from langchain_milvus import Zilliz
 

@@ -170,7 +170,7 @@ Make it more specific, include relevant technical terms, and focus on the core D
 """
 
 RESPONSE_GENERATION_PROMPT = """
-You are a friendly, conversational DSA tutor named DSA Bot. Your responses should be natural, engaging, and carefully tailored to avoid repetition.
+You are a friendly, conversational DSA tutor. Your responses should be natural, engaging, and carefully tailored to avoid repetition.
 
 <Question>
 {question}
@@ -181,6 +181,7 @@ You are a friendly, conversational DSA tutor named DSA Bot. Your responses shoul
 </Reference_Material>
 
 <User_Level>
+You can use markdown formatting for better readability.
 {level_requirements}
 </User_Level>
 
@@ -241,7 +242,7 @@ Respond accordingly based on the previous exchanges, user's competency level, an
 """
 
 DIRECT_GENERATION_PROMPT = """
-You are a friendly, conversational DSA tutor named DSA Bot. Your responses should be natural, engaging, and carefully tailored to avoid repetition. 
+You are a friendly, conversational DSA tutor. Your responses should be natural, engaging, and carefully tailored to avoid repetition. 
 Respond to the question accordingly based on the previous exchanges. Only tailor to user level if its a new topic and not a follow up question.
 
 <Question>
@@ -249,6 +250,7 @@ Respond to the question accordingly based on the previous exchanges. Only tailor
 </Question>
 
 <User_Level>
+You can use markdown formatting for better readability.
 {level_requirements}
 </User_Level>
 
@@ -706,35 +708,26 @@ def get_level_requirements(user_level: str) -> str:
     """
     level_requirements = {
         "beginner": """
-            When explaining to a beginner:
-
+            When explaining to a beginner: \n
+            \n
             Start with a friendly, simple explanation that relates to everyday experiences.
-            Include a simple, relatable definition with real-world analogies, a step-by-step walkthrough,
-            visual descriptions, plain language explanations of why the concept matters, and very simple code examples.
-            Additionally, if applicable, briefly mention any performance strengths (for example, that the algorithm 
-            is especially efficient for small or nearly sorted lists and is memory-friendly).
-            Aim for clarity and conciseness (for instance, around 350 words if it naturally fits), 
-            but prioritize ensuring the explanation is accessible and builds confidence.
+            Include a simple, relatable definition with real-world analogies, a step-by-step walkthrough using visual descriptions, plain language explanations of why the concept matters, and very simple code examples.\n
+            Additionally, if applicable, briefly mention any performance strengths (for example, that the algorithm is especially efficient for small or nearly sorted lists and is memory-friendly).\n
+            Aim for clarity and conciseness (for instance, around 350 words if it naturally fits), but prioritize ensuring the explanation is accessible and builds confidence.
         """,
         "intermediate": """
-            For intermediate learners:
-
-            Provide a balanced explanation that combines both practical implementation and theoretical insights.
-            Include a precise definition with proper terminology, a walkthrough of common implementation approaches,
-            a moderately complex example, an intuitive time/space complexity analysis, practical code examples or pseudocode,
-            and a discussion of common optimizations.
-            Aim for a conversational yet technically sound explanation (roughly 400-550 words is a guideline), 
-            but adjust based on the depth required.
+            For intermediate learners:\n
+            \n
+            Provide a balanced explanation that combines both practical implementation and theoretical insights.\n
+            Include a precise definition with proper terminology, a walkthrough of common implementation approaches, a moderately complex example, an intuitive time/space complexity analysis, practical code examples or pseudocode, and a discussion of common optimizations.\n
+            Aim for a conversational yet technically sound explanation (roughly 400-550 words is a guideline), but adjust based on the depth required.\n
         """,
         "advanced": """
-            For advanced learners:
-
-            Deliver a technically rich, in-depth explanation that respects their expertise.
-            Include precise definitions with formal properties, detailed analysis of implementation variations,
-            discussions of optimization techniques and their mathematical foundations, connections to broader algorithmic paradigms,
-            and an analysis of edge cases.
-            Aim for a substantive yet engaging explanation (as a guideline, around 600-800 words), 
-            while adapting as needed based on the complexity of the topic.
+            For advanced learners:\n
+            \n
+            Deliver a technically rich, in-depth explanation that respects their expertise.\n
+            Include precise definitions with formal properties, detailed analysis of implementation variations, discussions of optimization techniques and their mathematical foundations, connections to broader algorithmic paradigms, and an analysis of edge cases.\n
+            Aim for a substantive yet engaging explanation (as a guideline, around 600-800 words),while adapting as needed based on the complexity of the topic.
         """
     }
     
@@ -801,7 +794,7 @@ def synthesize_response(state: AgentState) -> Dict[str, Any]:
         )
         
         # Use higher temperature for more variety
-        llm = get_llm(temperature=0.7)
+        llm = get_llm(temperature=0)
         chain = prompt | llm | StrOutputParser()
         
         response = chain.invoke({
@@ -878,7 +871,7 @@ def generate_direct_response(state: AgentState) -> Dict[str, Any]:
         )
         
         # Initialize LLM with appropriate temperature
-        llm = get_llm(temperature=0.7)
+        llm = get_llm(temperature=0)
         chain = prompt | llm | StrOutputParser()
         
         response = chain.invoke({
