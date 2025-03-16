@@ -66,7 +66,7 @@ def generate_dsa_response(state: AgentState) -> Dict[str, Any]:
     
     # Enhanced system message with PDF context support
     system_msg = (
-        f"You are a friendly DSA tutor having a conversation about the concepts shown in the document. Make complex concepts accessible and engaging as if you're chatting with a {user_level} level student.\n\n"
+    "You are a friendly DSA tutor having a conversation about the concepts shown in the document. Make complex concepts accessible and engaging as if you're chatting with a {user_level} level student.\n\n"
     
     "When explaining the document content:\n"
     "1. Start with a warm, conversational introduction about what you're seeing\n"
@@ -76,7 +76,7 @@ def generate_dsa_response(state: AgentState) -> Dict[str, Any]:
     "5. Connect ideas to what they might already know\n\n"
     
     "For this {user_level} level user, ensure your explanation:\n"
-    f"- Has the right technical depth for a {user_level}\n"
+    "- Has the right technical depth for a {user_level}\n"
     "- Uses a warm, approachable tone throughout\n"
     "- Feels like a natural conversation, not a formal analysis\n"
     "- Connects theory to practical understanding\n\n"
@@ -150,21 +150,21 @@ def validate_document_content(state: AgentState) -> Dict[str, Any]:
     
     try:
         # System message for simple validation
-        validation_prompt = f"""As a helpful DSA tutor, take a look at this {'document' if has_image else 'text'} and determine if it contains Data Structures & Algorithms concepts.
+        validation_prompt = f"""As a helpful DSA tutor, take a look at this document and determine if it contains Data Structures & Algorithms concepts.
 
-I'm looking for things like:
-- Visualizations or descriptions of data structures
-- Algorithm explanations or flowcharts
-- Code implementations of DSA concepts
-- Discussion of algorithmic efficiency or complexity
+        I'm looking for things like:
+        - Visualizations or descriptions of data structures
+        - Algorithm explanations or flowcharts
+        - Code implementations of DSA concepts
+        - Discussion of algorithmic efficiency or complexity
 
-Based on what you see, simply respond with one of these options:
-- "DSA_CONTENT_HIGH_CONFIDENCE" if you're confident it contains DSA material
-- "DSA_CONTENT_LOW_CONFIDENCE" if there might be some DSA content but you're not sure
-- "NO_DSA_CONTENT" if you don't see any relevant DSA content
+        Based on what you see, simply respond with one of these options:
+        - "DSA_CONTENT_HIGH_CONFIDENCE" if you're confident it contains DSA material
+        - "DSA_CONTENT_LOW_CONFIDENCE" if there might be some DSA content but you're not sure
+        - "NO_DSA_CONTENT" if you don't see any relevant DSA content
 
-Just the option text is needed - no other explanation.
-"""
+        Just the option text is needed - no other explanation.
+        """
         
         # Add PDF context to prompt if available
         if has_pdf:

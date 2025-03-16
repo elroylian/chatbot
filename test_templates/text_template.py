@@ -59,7 +59,7 @@ Return:
 1. message_type: 'dsa', 'pleasantry', or 'other'
 2. response: Appropriate response for non-DSA inputs"""
 
-# Consolidated Question Clarification Prompt with Topic Detection
+# Consolidated Question Clarification Prompt
 QUESTION_CLARIFICATION_PROMPT = """
 You are a specialized DSA question processor working with a conversational AI system. Your task is to transform user questions into clear, context-aware queries while preserving the original intent.
 
@@ -149,7 +149,7 @@ Example DSA concepts to check for:
 - Comparisons between different approaches
 
 Based on your assessment, make a decisive recommendation:
-- Answer "GENERATE" if the content is good enough to generate a response (relevance > 0.6, overall quality sufficient)
+- Answer "GENERATE" if the content is good enough to generate a response
 - Answer "REWRITE" if the content isn't relevant or complete enough and we should try to get better content
 
 <Output Instruction>
@@ -158,15 +158,18 @@ Your answer must be ONLY one word: either "GENERATE" or "REWRITE".
 """
 
 QUERY_OPTIMIZATION_PROMPT = """
-Look at the input and try to reason about the underlying semantic intent / meaning.
-
 Here is the initial question:
 -------
 {question} 
 -------
 
-Formulate an improved question that will yield better search results for Data Structures and Algorithms concepts. 
-Make it more specific, include relevant technical terms, and focus on the core DSA concept being asked about.
+Expand this into a more complete sentence that will improve retrieval results by:
+1. Converting short phrases into full, grammatically complete questions
+2. Including relevant DSA terminology
+3. Maintaining the exact meaning and intent of the original query
+4. Adding contextual DSA keywords without changing the scope
+
+Your expanded version should be a single, well-formed question that would naturally yield better search results.
 """
 
 RESPONSE_GENERATION_PROMPT = """
@@ -263,10 +266,11 @@ You can use markdown formatting for better readability.
 
 # ===== Models and Type Definitions =====
 
-class AgentState(TypedDict):
+class MessageState(TypedDict):
     """State schema for the retrieval workflow"""
     messages: Annotated[Sequence[BaseMessage], add_messages]
     user_level: str
+    retrieval_attempts: Optional[int] = 0
 
 # We're keeping this model to maintain backward compatibility with existing references
 class ValidationResult(BaseModel):
@@ -449,7 +453,7 @@ def redirect_non_dsa_query(messages, user_level, response):
     }
 
 
-def classify_user_input(state: AgentState) -> Dict[str, Any]:
+def classify_user_input(state: MessageState) -> Dict[str, Any]:
     """
     Classify user input as DSA-related, pleasantry, non-English, or other.
     
@@ -487,7 +491,7 @@ def classify_user_input(state: AgentState) -> Dict[str, Any]:
         return handle_workflow_error(e, messages, user_level, "classify_user_input", "proceed")
 
 
-def expand_ambiguous_question(state: AgentState) -> Dict[str, Any]:
+def expand_ambiguous_question(state: MessageState) -> Dict[str, Any]:
     """
     Process questions by determining if they are new topics or follow-ups
     and applying appropriate clarification.
@@ -551,7 +555,7 @@ def expand_ambiguous_question(state: AgentState) -> Dict[str, Any]:
         return handle_workflow_error(e, messages, user_level, "expand_ambiguous_question")
 
 
-def evaluate_and_retrieve(state: AgentState) -> Dict[str, Any]:
+def evaluate_and_retrieve(state: MessageState) -> Dict[str, Any]:
     """
     Generate a response or use tools to retrieve information based on the query.
     
@@ -565,7 +569,23 @@ def evaluate_and_retrieve(state: AgentState) -> Dict[str, Any]:
     messages = state["messages"]
     user_level = state["user_level"]
     
+    # Get current attempt count or initialize to 0
+    retrieval_attempts = state.get("retrieval_attempts", 0) + 1
+    
+    # Check if max attempts reached
+    if retrieval_attempts >= 2:
+        logger.warning(f"Maximum retrieval attempts reached ({retrieval_attempts-1}). Falling back to direct generation.")
+        return {
+            "messages": messages,
+            "user_level": user_level,
+            "retrieval_attempts": retrieval_attempts,
+            "next": "direct_generation"  # Signal to use direct generation
+        }
+    
     try:
+        # Update attempt counter in state
+        logger.info(f"Retrieval attempt {retrieval_attempts} of 5")
+        
         # Prepare messages with system instruction
         full_messages = [
             HumanMessage(content=RETRIEVAL_PROMPT),
@@ -587,14 +607,18 @@ def evaluate_and_retrieve(state: AgentState) -> Dict[str, Any]:
         response = llm.invoke(full_messages)
         logger.info("LLM response or tool invocation generated")
         
-        return {"messages": [response]}
+        return {
+            "messages": [response],
+            "user_level": user_level,
+            "retrieval_attempts": retrieval_attempts
+        }
         
     except Exception as e:
         error_msg = "I'm having trouble answering that question right now. Could you please rephrase it?"
         return {"messages": [AIMessage(content=error_msg)]}
 
 
-def assess_document_relevance(state: AgentState) -> Literal["generate", "rewrite"]:
+def assess_document_relevance(state: MessageState) -> Literal["generate", "rewrite"]:
     """
     Grade retrieved documents for relevance and completeness.
     
@@ -654,7 +678,7 @@ def assess_document_relevance(state: AgentState) -> Literal["generate", "rewrite
         return "rewrite"
 
 
-def optimize_query(state: AgentState) -> Dict[str, Any]:
+def optimize_query(state: MessageState) -> Dict[str, Any]:
     """
     Reformulate the query to get better search results.
     
@@ -666,6 +690,8 @@ def optimize_query(state: AgentState) -> Dict[str, Any]:
     """
     logger.info("Optimizing query")
     messages = state["messages"]
+    user_level = state["user_level"]
+    retrieval_attempts = state.get("retrieval_attempts", 0)
     
     try:
         # Find the original question
@@ -673,7 +699,13 @@ def optimize_query(state: AgentState) -> Dict[str, Any]:
             logger.warning("No messages found to optimize")
             return {"messages": messages}
             
-        question = get_message_content(messages[-1])
+        # Find the latest human message (question) to optimize
+        question = None
+        for i in range(len(messages) - 1, -1, -1):
+            if isinstance(messages[i], HumanMessage):
+                question = get_message_content(messages[i])
+                break
+        logger.info(f"Original query: {question}")
         
         # Create optimization prompt
         prompt = PromptTemplate(
@@ -688,9 +720,13 @@ def optimize_query(state: AgentState) -> Dict[str, Any]:
         ])
         
         optimized_question = response.content.strip()
-        logger.info(f"Query optimized: '{question}' -> '{optimized_question}'")
+        # logger.info(f"Query optimized: '{question}' -> '{optimized_question}'")
         
-        return {"messages": [HumanMessage(content=optimized_question)]}
+        return {
+            "messages": [HumanMessage(content=optimized_question)],
+            "user_level": user_level,
+            "retrieval_attempts": retrieval_attempts  # Pass counter through
+        }
         
     except Exception as e:
         return handle_workflow_error(e, messages, state["user_level"], "optimize_query")
@@ -739,7 +775,7 @@ def get_level_requirements(user_level: str) -> str:
 
 
 
-def synthesize_response(state: AgentState) -> Dict[str, Any]:
+def synthesize_response(state: MessageState) -> Dict[str, Any]:
     """
     Generate a tailored response based on user level and retrieved content.
     
@@ -794,7 +830,7 @@ def synthesize_response(state: AgentState) -> Dict[str, Any]:
         )
         
         # Use higher temperature for more variety
-        llm = get_llm(temperature=0)
+        llm = get_llm(temperature=0.5)
         chain = prompt | llm | StrOutputParser()
         
         response = chain.invoke({
@@ -814,7 +850,7 @@ def synthesize_response(state: AgentState) -> Dict[str, Any]:
     except Exception as e:
         return handle_workflow_error(e, messages, user_level, "synthesize_response")
 
-def generate_direct_response(state: AgentState) -> Dict[str, Any]:
+def generate_direct_response(state: MessageState) -> Dict[str, Any]:
     """
     Generate a response directly from the model's knowledge without retrieved content.
     
@@ -871,7 +907,7 @@ def generate_direct_response(state: AgentState) -> Dict[str, Any]:
         )
         
         # Initialize LLM with appropriate temperature
-        llm = get_llm(temperature=0)
+        llm = get_llm(temperature=0.5)
         chain = prompt | llm | StrOutputParser()
         
         response = chain.invoke({
@@ -911,7 +947,7 @@ def create_retrieval_graph() -> StateGraph:
     )
     
     # Create state graph with schema
-    workflow = StateGraph(AgentState)
+    workflow = StateGraph(MessageState)
     
     # Add nodes
     workflow.add_node("classify_user_input", classify_user_input)
@@ -939,13 +975,22 @@ def create_retrieval_graph() -> StateGraph:
     workflow.add_edge("expand_ambiguous_question", "evaluate_and_retrieve")
     
     # Tool handling
+    # workflow.add_conditional_edges(
+    #     "evaluate_and_retrieve",
+    #     tools_condition,
+    #     {
+    #         "tools": "retrieve",
+    #         END: "generate_direct_response",
+    #     }
+    # )
     workflow.add_conditional_edges(
-        "evaluate_and_retrieve",
-        tools_condition,
-        {
-            "tools": "retrieve",
-            END: "generate_direct_response",
-        }
+    "evaluate_and_retrieve",
+        lambda x: x.get("next", tools_condition(x)),
+            {
+                "tools": "retrieve",
+                "direct_generation": "generate_direct_response",
+                END: "generate_direct_response",
+            }
     )
     
     # Document relevance assessment

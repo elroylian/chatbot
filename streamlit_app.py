@@ -519,10 +519,10 @@ def chatbot_page():
                                 st.session_state["user_level"] = user_level
                                 
                                 # Keep only the last assessment message
-                                st.session_state["messages"] = [AIMessage(content=full_response)]
+                                st.session_state["messages"] = [AIMessage(content="You may now ask your DSA question.")]
                                 
                                 db.clear_chat_history(user_id, chat_id)
-                                db.save_message(user_id, chat_id, "assistant", full_response)
+                                # db.save_message(user_id, chat_id, "assistant", full_response)
                                 
                                 # Rerun the app
                                 st.rerun()
@@ -726,7 +726,7 @@ def learning_page():
                         
                         # Display subtopics in a clean list
                         for subtopic in subtopics:
-                            st.markdown(f"• {subtopic}")
+                            st.markdown(f"- {subtopic.replace('_', ' ').title()}")
         else:
             st.info("You haven't learned any topics yet. Start interacting with the chatbot to build your learning history!")
     

@@ -125,7 +125,7 @@ def analyze_user_level(state: AgentState) -> Dict[str, Any]:
     conversation_context = format_conversation_context(messages)
     
     # Construct the assessment prompt with detailed evaluation steps
-    assessment_prompt = f"""Assess the user's learning progression in Data Structures and Algorithms (DSA) based solely on the following conversation and previously covered topics. Do not infer or add topics that were not explicitly mentioned.
+    assessment_prompt = f"""Assess the user's learning progression in Data Structures and Algorithms (DSA) based solely on the following conversation and previously covered topics.
 
 Current Level: {user_level}
 
@@ -133,60 +133,75 @@ Previously Covered Topics:
 {json.dumps(previous_topics, indent=2)}
 
 Level Definitions:
-- Beginner: Focuses on fundamental concepts (e.g., simple definitions of basic algorithms or data structures).
-- Intermediate: Explores more detailed aspects or multiple related topics.
-- Advanced: Asks in-depth, technical questions about optimization, complex algorithms, or system-level design.
+- Beginner: Basic understanding of fundamental concepts (arrays, linked lists, basic sorting algorithms, time complexity basics)
+- Intermediate: Confident with standard data structures, algorithms, and their implementations; understands tradeoffs between different approaches
+- Advanced: Deep understanding of algorithm design, optimization techniques, advanced data structures, and complex problem-solving strategies
 
-<INTERACTION>
+<CONVERSATION>
 {conversation_context}
-</INTERACTION>
+</CONVERSATION>
 
-<EVALUATION_PROCESS>
-Please think through this step by step:
+Follow this structured evaluation process:
 
-STEP 1: Analyze the content
-- Review the entire conversation carefully
-- Identify specific DSA concepts mentioned
-- Note the depth and complexity of questions and explanations
+1. Content Analysis
+   - Carefully analyze the user's questions and their focus
+   - Identify main DSA concepts the user is explicitly asking about or discussing
+   - Note whether the user is asking about implementations or just requesting explanations
 
-STEP 2: Extract topics and categorize
-- List all DSA topics explicitly mentioned
-- Organize them hierarchically (parent topics and subtopics)
-- Follow these topic normalization rules:
-  * Combine similar concepts under a single parent topic
-  * If a concept appears both as a parent and subtopic, make it a parent
-  * For similar topics (e.g., "Hash Tables: Chaining" and "Collisions: Chaining in Hash Tables"), 
-    combine them under the most appropriate parent category
-  * Use the most specific/accurate name for the topic
-  * Avoid creating separate entries for the same concept described differently
-- Compare with previously covered topics to identify new areas
+2. Topic Extraction Guidelines
+   - Extract ONLY primary DSA topics the user is actively learning or inquiring about
+   - DO NOT extract implementation details, tools, or supporting concepts mentioned only in explanations
+   - ONLY include topics that the user has demonstrated interest in learning about
+   - For example:
+     * If a user asks "What's the most efficient way to implement an LRU cache?" - extract "lru_cache" as a topic
+     * DO NOT extract hash maps or linked lists if they are only mentioned as implementation details
+     * If hash maps are the primary focus of the user's question, THEN extract them as a topic
 
-STEP 3: Assess conceptual depth
-- Evaluate the technical sophistication of the questions
-- Look for evidence of understanding vs. basic information seeking
-- Consider whether the user is exploring advanced aspects of topics
+3. Topic Classification
+   - Group extracted topics into logical parent categories
+   - Normalize topic naming using snake_case (e.g., binary_search_trees)
+   - Avoid duplicating concepts across different categories
+   - Focus on the user's intent rather than every technical term mentioned
 
-STEP 4: Analyze progression
-- Compare current engagement with their assigned level
-- Look for evidence of growth or struggles
-- Consider if they're ready for more advanced concepts or need reinforcement
+4. Depth Assessment
+   - Evaluate the technical depth of the user's questions
+   - Consider if they're asking about basic definitions or advanced implementation details
+   - Look for evidence of problem-solving ability vs. simple information gathering
 
-STEP 5: Make a recommendation with confidence
-- Based on your analysis, decide whether to:
-  * Promote: Strong evidence they're operating above current level
-  * Maintain: Appropriate engagement at current level
-  * Demote: Consistent struggling with concepts at current level
-- Assign a confidence score (0-1) based on clarity of evidence
+5. Level Alignment & Recommendation
+   - Compare the user's demonstrated knowledge with their current assigned level
+   - Determine if the evidence strongly supports a level change:
+     * Promote: Consistently demonstrates understanding beyond current level
+     * Maintain: Appropriately engaged at current level
+     * Demote: Repeatedly struggles with concepts at current level
+   - Assign a confidence score (0-1) based on the strength and consistency of evidence
 
-</EVALUATION_PROCESS>
+Provide your assessment as a valid JSON object with these fields:
+{{
+  "current_level": string,          // User's current level (beginner, intermediate, advanced)
+  "recommendation": string,         // "Promote", "Maintain", or "Demote"
+  "confidence": number,             // 0.0-1.0 confidence score
+  "evidence": [                     // Array of conversation excerpts supporting your assessment
+    "quote1 from conversation", 
+    "quote2 from conversation"
+  ],
+  "reasoning": [                    // Array of reasons explaining your recommendation
+    "reason1 for recommendation",
+    "reason2 for recommendation"
+  ],
+  "topics": {{                     // Hierarchical topic structure
+    "parent_topic1": [              // Parent topics in snake_case
+      "subtopic1",                  // Subtopics in snake_case
+      "subtopic2"
+    ],
+    "parent_topic2": [
+      "subtopic3", 
+      "subtopic4"
+    ]
+  }}
+}}
 
-Create your assessment in JSON format with these fields:
-- current_level: The user's current assigned level
-- recommendation: Must be exactly one of: "Promote", "Maintain", or "Demote"
-- confidence: A number between 0.0 and 1.0 indicating your confidence
-- topics: A nested object where keys are parent topics and values are arrays of subtopics
-
-Your response should be ONLY the valid JSON with nothing else.
+Return ONLY a valid JSON object with no additional text.
 """
     
     # Update this section in analyze_user_level function in analyser.py
@@ -250,8 +265,8 @@ Your response should be ONLY the valid JSON with nothing else.
             "current_level": user_level,
             "recommendation": "Maintain",
             "confidence": 0.0,
-            # "evidence": ["System error"],
-            # "reasoning": ["Error during analysis"],
+            "evidence": ["System error"],
+            "reasoning": ["Error during analysis"],
             "topics": previous_topics or {},
         }
         return {

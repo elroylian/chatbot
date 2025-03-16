@@ -18,7 +18,7 @@ The user is new to your application and you need to assess their DSA knowledge l
 1. First, ask about their familiarity with basic data structures (arrays, linked lists, stacks, queues) on a scale of 1-5.
 
 2. Only if they rate basic structures 2 or higher, ask about their understanding of sorting algorithms (e.g., insertion sort, merge sort) on a scale of 1-5.
-   If they rated basic structures as 1, automatically assign 1 to sorting algorithms.
+   If they rated basic structures as 1, automatically assign 1 to sorting algorithms and advanced topics.
 
 3. Only if they rate sorting algorithms 2 or higher, ask about their experience with advanced topics (e.g., trees, graphs, dynamic programming) on a scale of 1-5.
    If they rated sorting algorithms as 1, automatically assign 1 to advanced topics.
