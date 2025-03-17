@@ -1,16 +1,26 @@
 cookie:
-  expiry_days: 30
+  expiry_days: 20
   key: some_signature_key
   name: some_cookie_name
 credentials:
   usernames:
     roylwz:
       email: elroy7602@gmail.com
-      first_name: Elroy
-      last_name: Lian
+      first_name: Test
+      last_name: User
       logged_in: false
-      password: $2b$12$dknIOTMKMeYsGWzvZu5fkObNdmaoxR6dvIEuYDPn7dEW8AlA4hu7K
-      password_hint: abcde123!
+      password: $2b$12$CrncArl1neReuBJrYhsCaehRQ4mtwlBXJJA1J/0MfvQJWv/PMfxRG
+      password_hint: Abcde123!
+      roles:
+      - user
+      - tester
+    roylwz2:
+      email: elroy2304@gmail.com
+      first_name: Elroy
+      last_name: Test
+      logged_in: false
+      password: $2b$12$BkKHz.z2a2LKPEV5spChZ.ffkcZ2nyDVU6KvdOSsbqk/NK3IqNMEW
+      password_hint: Abcde123!
       roles:
       - user
       - tester
@@ -19,8 +29,7 @@ credentials:
       first_name: Test
       last_name: User
       logged_in: false
-      password: $2b$12$dI17BU1VBL.i6Hu9mMQSnux9ShVnXoTF/u3KH4OjgsPK3gc59FBRy
-      password_hint: Abcde123!
+      password: $2b$12$okCR8WWoxDsP2mleLHzw4eENtrHyDmzeOrCn4xjJoorvJeFqWT.NS
+      password_hint: testuser1!
       roles:
       - user
-      - tester

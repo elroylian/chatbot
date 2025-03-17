@@ -2,7 +2,7 @@
 
 A Retrieval-Augmented Generation (RAG) chatbot specialized in Data Structures and Algorithms, powered by LangChain, AstraDB, and Streamlit.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)
 
 ## Features
 

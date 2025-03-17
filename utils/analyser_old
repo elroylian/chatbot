@@ -1,0 +1,138 @@
+from typing import Annotated, Sequence, Dict, Any, List
+from typing_extensions import TypedDict
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
+from langgraph.graph.message import add_messages
+from langgraph.graph import END, StateGraph, START
+import streamlit as st
+import json
+
+class AgentState(TypedDict):
+    """State management for level assessment"""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    user_level: str
+    previous_topics: Dict[str, List[str]]
+
+class LevelAssessment(BaseModel):
+    current_level: str = Field(description="User's current level")
+    recommendation: str = Field(description="Promote/Maintain/Demote")
+    confidence: float = Field(description="Confidence score 0-1")
+    evidence: List[str] = Field(description="Supporting evidence from questions")
+    reasoning: List[str] = Field(description="Reasons for recommendation")
+    topics: Dict[str, List[str]] = Field(description="Hierarchical topics; keys are parent topics and values are lists of subtopics")
+
+def analyze_user_level(state: AgentState) -> Dict[str, Any]:
+    """Analyze if user level should change based on full interaction context."""
+    messages = state["messages"]
+    user_level = state["user_level"]
+    previous_topics = state.get("previous_topics", {})
+    
+    # Format conversation context for prompt
+    conversation_context = "\n".join([
+        f"{'User: ' if isinstance(m, HumanMessage) else 'Assistant: '}{m.content}"
+        for m in messages
+    ])
+    
+    prompt = PromptTemplate(
+        template="""Assess the user's learning progression in Data Structures and Algorithms (DSA) based solely on the following conversation and previously covered topics. Do not infer or add topics that were not explicitly mentioned in this conversation or in the previous analysis.
+
+Current Level: {user_level}
+
+Previously Covered Topics:
+{previous_topics}
+
+Level Definitions:
+- Beginner: Focuses on fundamental concepts (e.g., simple definitions of basic algorithms or data structures).
+- Intermediate: Explores more detailed aspects or multiple related topics.
+- Advanced: Asks in-depth, technical questions about optimization, complex algorithms, or system-level design.
+
+<INTERACTION>
+{conversation_context}
+</INTERACTION>
+
+<EVALUATION_PROCESS>
+Please think through this step by step:
+
+STEP 1: Analyze the content
+- Review the entire conversation carefully
+- Identify specific DSA concepts mentioned
+- Note the depth and complexity of questions and explanations
+
+STEP 2: Extract topics and categorize
+- List all DSA topics explicitly mentioned
+- Organize them hierarchically (parent topics and subtopics)
+- Compare with previously covered topics to identify new areas
+
+STEP 3: Assess conceptual depth
+- Evaluate the technical sophistication of the questions
+- Look for evidence of understanding vs. basic information seeking
+- Consider whether the user is exploring advanced aspects of topics
+
+STEP 4: Analyze progression
+- Compare current engagement with their assigned level
+- Look for evidence of growth or struggles
+- Consider if they're ready for more advanced concepts or need reinforcement
+
+STEP 5: Make a recommendation with confidence
+- Based on your analysis, decide whether to:
+  * Promote: Strong evidence they're operating above current level
+  * Maintain: Appropriate engagement at current level
+  * Demote: Consistent struggling with concepts at current level
+- Assign a confidence score (0-1) based on clarity of evidence
+</EVALUATION_PROCESS>
+
+<INSTRUCTIONS>
+Return ONLY a syntactically correct JSON object in the following exact format (using double curly braces for literal braces):
+
+{{
+    "recommendation": "Promote/Maintain/Demote",
+    "confidence": 0.0-1.0,
+    "evidence": ["direct excerpt from conversation", "another direct excerpt"],
+    "reasoning": ["explanation based solely on the conversation"],
+    "topics": {{"sorting algorithms": ["insertion sort"]}}
+}}
+</INSTRUCTIONS>
+    """,
+        input_variables=["conversation_context", "user_level", "previous_topics"]
+    )
+
+    
+    try:
+        model = ChatOpenAI(
+            model_name="gpt-4o-mini",
+            temperature=0,
+            streaming=True,
+            api_key=st.secrets["OpenAI_key"]
+        )
+        llm_with_analysis = model.with_structured_output(LevelAssessment)
+        
+        analysis = llm_with_analysis.invoke(prompt.format(
+            conversation_context=conversation_context,
+            user_level=user_level,
+            previous_topics=json.dumps(previous_topics)  # Pass as JSON string for clarity
+        ))
+        
+        print("Extracted topics:", analysis.topics)
+        
+        # Enforce confidence threshold (e.g., 0.7)
+        if analysis.confidence < 0.8:
+            return {"messages": [AIMessage(content=f"Low confidence in level assessment: {analysis.confidence}")]}
+        
+        return {"messages": [AIMessage(content=json.dumps(analysis.dict()))]}
+        
+    except Exception as e:
+        print(f"Error in analyze_user_level: {str(e)}")  # Log the error
+        return {"messages": [AIMessage(content="Error analyzing user level.")]}
+
+# Graph setup
+analyser_workflow = StateGraph(AgentState)
+analyser_workflow.add_node("analyze", analyze_user_level)
+analyser_workflow.add_edge(START, "analyze")
+analyser_workflow.add_edge("analyze", END)
+
+# Compile
+# from langgraph.checkpoint.memory import MemorySaver
+# memory = MemorySaver()
+# graph = analyser_workflow.compile(memory)

@@ -1,0 +1,6 @@
+[runner]
+magicEnabled = false
+
+[server]
+maxUploadSize = 5
+enableXsrfProtection = true
