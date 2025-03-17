@@ -4,13 +4,64 @@ import numpy as np
 import seaborn as sns
 import json
 from matplotlib.gridspec import GridSpec
+import os
+
+# Set the user level - change this to 'beginner', 'intermediate', or 'advanced'
+LEVEL = 'intermediate'
+
+# Map of category field names for each level
+CATEGORY_FIELDS = {
+    'beginner': {
+        "technical_accuracy": "Technical Accuracy",
+        "beginner_accessibility": "Beginner Accessibility", 
+        "clarity_examples": "Clarity & Examples",
+        "educational_value": "Educational Value",
+        "practical_application": "Practical Application"
+    },
+    'intermediate': {
+        "technical_accuracy_depth": "Technical Accuracy & Depth",
+        "implementation_focus": "Implementation Focus",
+        "algorithmic_analysis": "Algorithmic Analysis",
+        "conceptual_connections": "Conceptual Connections",
+        "progressive_advancement": "Progressive Advancement"
+    },
+    'advanced': {
+        "technical_sophistication": "Technical Sophistication",
+        "optimization_insight": "Optimization Insight",
+        "complexity_analysis": "Complexity Analysis",
+        "system_level_integration": "System-Level Integration",
+        "research_connections": "Research Connections"
+    }
+}
 
 # Load the graded results
-df = pd.read_csv('graded_evaluation_results_cleaned.csv')
+df = pd.read_csv(f'{LEVEL}_graded_evaluation_results.csv', encoding='latin-1', on_bad_lines='skip')
 
 # Create a directory for the visualizations
-import os
-os.makedirs('evaluation_plots/intermediate', exist_ok=True)
+os.makedirs(f'evaluation_results/{LEVEL}', exist_ok=True)
+
+# Auto-detect the correct field names from the data
+def detect_field_names():
+    """Automatically detect the field names in the evaluation data."""
+    for feedback in df['grading_feedback']:
+        if pd.notna(feedback) and not feedback.startswith(('Skipped', 'JSON', 'Grading')):
+            try:
+                data = json.loads(feedback)
+                # Get the keys from model1_score
+                return list(data["model1_score"].keys())
+            except:
+                continue
+    
+    # If we can't detect from data, use the predefined mapping
+    return list(CATEGORY_FIELDS[LEVEL].keys())
+
+# Get the field names
+detected_fields = detect_field_names()
+print(f"Detected fields: {detected_fields}")
+
+# Remove 'total' if it exists, as we handle it separately
+if 'total' in detected_fields:
+    detected_fields.remove('total')
 
 # 1. Overall Win Comparison (Bar Chart)
 def plot_win_comparison():
@@ -28,7 +79,7 @@ def plot_win_comparison():
     plt.figure(figsize=(10, 6))
     ax = win_counts.plot(kind='bar', color=['#4CAF50', '#2196F3', '#9E9E9E'])
     
-    plt.title('Overall Performance Comparison', fontsize=16, pad=20)
+    plt.title(f'Overall Performance Comparison ({LEVEL.capitalize()} Level)', fontsize=16, pad=20)
     plt.ylabel('Number of Wins', fontsize=14)
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     
@@ -39,51 +90,48 @@ def plot_win_comparison():
     
     plt.ylim(0, max(win_counts) * 1.2)  # Add space for labels
     plt.tight_layout()
-    plt.savefig('evaluation_plots/win_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'evaluation_results/{LEVEL}/win_comparison.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     return win_counts, percentages
 
 # 2. Score Breakdown by Category
 def plot_category_scores():
+    # Initialize score dictionaries based on detected fields
+    model1_scores = {field: [] for field in detected_fields}
+    model2_scores = {field: [] for field in detected_fields}
+    
     # Extract scores from JSON feedback
-    model1_scores = {
-        "technical_accuracy": [],
-        "beginner_accessibility": [],
-        "clarity_examples": [],
-        "educational_value": [],
-        "practical_application": []
-    }
-    
-    model2_scores = {
-        "technical_accuracy": [],
-        "beginner_accessibility": [],
-        "clarity_examples": [],
-        "educational_value": [],
-        "practical_application": []
-    }
-    
     for feedback in df['grading_feedback']:
         if pd.notna(feedback) and not feedback.startswith(('Skipped', 'JSON', 'Grading')):
             try:
                 data = json.loads(feedback)
                 
-                for category in model1_scores:
-                    if category in data["model1_score"]:
-                        model1_scores[category].append(data["model1_score"][category])
+                for field in detected_fields:
+                    if field in data["model1_score"]:
+                        model1_scores[field].append(data["model1_score"][field])
                     
-                    if category in data["model2_score"]:
-                        model2_scores[category].append(data["model2_score"][category])
+                    if field in data["model2_score"]:
+                        model2_scores[field].append(data["model2_score"][field])
             except:
                 continue
     
     # Calculate averages for each category
-    model1_avgs = {cat: sum(scores)/len(scores) if scores else 0 for cat, scores in model1_scores.items()}
-    model2_avgs = {cat: sum(scores)/len(scores) if scores else 0 for cat, scores in model2_scores.items()}
+    model1_avgs = {cat: round(sum(scores)/len(scores), 5) if scores else 0 
+                    for cat, scores in model1_scores.items()}
+    model2_avgs = {cat: round(sum(scores)/len(scores), 5) if scores else 0 
+                    for cat, scores in model2_scores.items()}
+    
+    # Get category display names
+    if LEVEL in CATEGORY_FIELDS:
+        category_display = [CATEGORY_FIELDS[LEVEL].get(field, field.replace('_', ' ').title()) 
+                           for field in detected_fields]
+    else:
+        category_display = [field.replace('_', ' ').title() for field in detected_fields]
     
     # Make results dataframe
     results_df = pd.DataFrame({
-        'Category': [cat.replace('_', ' ').title() for cat in model1_scores.keys()],
+        'Category': category_display,
         'Your Chatbot': list(model1_avgs.values()),
         'GPT-4o-mini': list(model2_avgs.values())
     })
@@ -128,9 +176,9 @@ def plot_category_scores():
     # Add legend
     plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1), fontsize=12)
     
-    plt.title('Average Scores by Category for Beginner Users', fontsize=16, y=1.08)
+    plt.title(f'Average Scores by Category for {LEVEL.capitalize()} Users', fontsize=16, y=1.08)
     plt.tight_layout()
-    plt.savefig('evaluation_plots/category_radar.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'evaluation_results/{LEVEL}/category_radar.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     # Also create a bar chart version for clarity
@@ -150,8 +198,8 @@ def plot_category_scores():
     # Set axes and labels
     plt.axhline(y=3, linestyle='--', color='gray', alpha=0.5)  # Add reference line at score 3
     plt.ylabel('Average Score (0-5)', fontsize=14)
-    plt.title('Average Category Scores for Beginner Users', fontsize=16, pad=20)
-    plt.xticks(pos, categories, fontsize=12, rotation=30, ha='right')
+    plt.title(f'Average Category Scores for {LEVEL.capitalize()} Users', fontsize=16, pad=20)
+    plt.xticks(pos, categories, fontsize=11, rotation=30, ha='right')
     plt.yticks(range(6))
     plt.grid(axis='y', linestyle='--', alpha=0.3)
     
@@ -165,7 +213,7 @@ def plot_category_scores():
     plt.legend(fontsize=12)
     plt.ylim(0, 5.5)  # Add space for labels
     plt.tight_layout()
-    plt.savefig('evaluation_plots/category_bars.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'evaluation_results/{LEVEL}/category_bars.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     return results_df
@@ -210,91 +258,18 @@ def plot_score_distribution():
         plt.text(i, scores_df[col].max() + 0.5, f'Mean: {mean_val:.1f}', 
                  ha='center', fontsize=11, fontweight='bold')
     
-    plt.title('Distribution of Total Scores (Out of 25)', fontsize=16, pad=20)
+    plt.title(f'Distribution of Total Scores for {LEVEL.capitalize()} Level (Out of 25)', fontsize=16, pad=20)
     plt.ylabel('Total Score', fontsize=14)
     plt.grid(axis='y', linestyle='--', alpha=0.3)
     plt.ylim(0, 25.5)  # Set y-axis limit to maximum possible score
     plt.tight_layout()
-    plt.savefig('evaluation_plots/score_distribution.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'evaluation_results/{LEVEL}/score_distribution.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     return scores_df
 
-# 4. Score Difference Analysis
-def plot_score_differences():
-    differences = []
-    questions = []
-    winners = []
-    
-    for i, feedback in enumerate(df['grading_feedback']):
-        if pd.notna(feedback) and not feedback.startswith(('Skipped', 'JSON', 'Grading')):
-            try:
-                data = json.loads(feedback)
-                
-                model1_total = data["model1_score"]["total"]
-                model2_total = data["model2_score"]["total"]
-                
-                diff = model1_total - model2_total
-                differences.append(diff)
-                
-                # Get original question (shortened)
-                question = df.iloc[i]['question']
-                if len(question) > 50:
-                    question = question[:47] + "..."
-                questions.append(question)
-                
-                # Get winner
-                winners.append(data['winner'])
-                
-            except:
-                continue
-    
-    # Create DataFrame for differences
-    diff_df = pd.DataFrame({
-        'Question': questions,
-        'Difference': differences,
-        'Winner': winners
-    })
-    
-    # Sort by difference
-    diff_df = diff_df.sort_values('Difference')
-    
-    # Plot the differences
-    plt.figure(figsize=(12, len(diff_df) * 0.4 + 2))
-    
-    # Set colors based on winner
-    colors = ['#4CAF50' if d > 0 else '#2196F3' if d < 0 else '#9E9E9E' for d in diff_df['Difference']]
-    
-    # Create horizontal bar chart
-    bars = plt.barh(range(len(diff_df)), diff_df['Difference'], color=colors)
-    
-    # Add vertical line at 0
-    plt.axvline(x=0, color='black', linestyle='-', alpha=0.7)
-    
-    # Add labels
-    plt.xlabel('Score Difference (Your Chatbot - GPT-4o-mini)', fontsize=14)
-    plt.yticks(range(len(diff_df)), diff_df['Question'], fontsize=9)
-    plt.title('Score Differences by Question', fontsize=16, pad=20)
-    
-    # Add grid lines
-    plt.grid(axis='x', linestyle='--', alpha=0.3)
-    
-    # Add legend
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor='#4CAF50', label='Your Chatbot Better'),
-        Patch(facecolor='#2196F3', label='GPT-4o-mini Better'),
-        Patch(facecolor='#9E9E9E', label='Tie')
-    ]
-    plt.legend(handles=legend_elements, loc='lower right')
-    
-    plt.tight_layout()
-    plt.savefig('evaluation_plots/score_differences.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    return diff_df
 
-# 5. Create a comprehensive dashboard
+# 4. Create a comprehensive dashboard
 def create_evaluation_dashboard():
     # Create a figure with subplots
     fig = plt.figure(figsize=(20, 24))
@@ -320,34 +295,22 @@ def create_evaluation_dashboard():
     ax1.set_ylim(0, max(win_counts) * 1.2)
     
     # 2. Average category scores (top right)
+    # Initialize score dictionaries based on detected fields
+    model1_scores = {field: [] for field in detected_fields}
+    model2_scores = {field: [] for field in detected_fields}
+    
     # Extract scores from JSON feedback
-    model1_scores = {
-        "technical_accuracy": [],
-        "beginner_accessibility": [],
-        "clarity_examples": [],
-        "educational_value": [],
-        "practical_application": []
-    }
-    
-    model2_scores = {
-        "technical_accuracy": [],
-        "beginner_accessibility": [],
-        "clarity_examples": [],
-        "educational_value": [],
-        "practical_application": []
-    }
-    
     for feedback in df['grading_feedback']:
         if pd.notna(feedback) and not feedback.startswith(('Skipped', 'JSON', 'Grading')):
             try:
                 data = json.loads(feedback)
                 
-                for category in model1_scores:
-                    if category in data["model1_score"]:
-                        model1_scores[category].append(data["model1_score"][category])
+                for field in detected_fields:
+                    if field in data["model1_score"]:
+                        model1_scores[field].append(data["model1_score"][field])
                     
-                    if category in data["model2_score"]:
-                        model2_scores[category].append(data["model2_score"][category])
+                    if field in data["model2_score"]:
+                        model2_scores[field].append(data["model2_score"][field])
             except:
                 continue
     
@@ -355,13 +318,17 @@ def create_evaluation_dashboard():
     model1_avgs = {cat: sum(scores)/len(scores) if scores else 0 for cat, scores in model1_scores.items()}
     model2_avgs = {cat: sum(scores)/len(scores) if scores else 0 for cat, scores in model2_scores.items()}
     
-    # Create DataFrame
-    categories = [cat.replace('_', ' ').title() for cat in model1_scores.keys()]
+    # Get category display names
+    if LEVEL in CATEGORY_FIELDS:
+        category_display = [CATEGORY_FIELDS[LEVEL].get(field, field.replace('_', ' ').title()) 
+                           for field in detected_fields]
+    else:
+        category_display = [field.replace('_', ' ').title() for field in detected_fields]
     
     ax2 = fig.add_subplot(gs[0, 1])
     
     # Set positions for bars
-    pos = list(range(len(categories)))
+    pos = list(range(len(category_display)))
     width = 0.35
     
     # Create bars
@@ -376,7 +343,7 @@ def create_evaluation_dashboard():
     ax2.set_ylabel('Average Score (0-5)', fontsize=14)
     ax2.set_title('Average Category Scores', fontsize=16)
     ax2.set_xticks(pos)
-    ax2.set_xticklabels(categories, fontsize=12, rotation=30, ha='right')
+    ax2.set_xticklabels(category_display, fontsize=11, rotation=30, ha='right')
     ax2.set_yticks(range(6))
     ax2.grid(axis='y', linestyle='--', alpha=0.3)
     
@@ -433,89 +400,11 @@ def create_evaluation_dashboard():
     ax3.grid(axis='y', linestyle='--', alpha=0.3)
     ax3.set_ylim(0, 25.5)
     
-    # 4. Difference analysis (bottom)
-    differences = []
-    questions = []
-    winners = []
-    
-    # Only take the top 15 most significant differences to maintain readability
-    valid_entries = []
-    
-    for i, feedback in enumerate(df['grading_feedback']):
-        if pd.notna(feedback) and not feedback.startswith(('Skipped', 'JSON', 'Grading')):
-            try:
-                data = json.loads(feedback)
-                model1_total = data["model1_score"]["total"]
-                model2_total = data["model2_score"]["total"]
-                diff = model1_total - model2_total
-                
-                valid_entries.append((i, abs(diff), diff))
-            except:
-                continue
-    
-    # Sort by absolute difference
-    valid_entries.sort(key=lambda x: x[1], reverse=True)
-    
-    # Take top 15
-    top_entries = valid_entries[:15]
-    
-    for i, _, diff in top_entries:
-        feedback = df['grading_feedback'].iloc[i]
-        
-        try:
-            data = json.loads(feedback)
-            
-            # Get original question (shortened)
-            question = df.iloc[i]['question']
-            if len(question) > 40:
-                question = question[:37] + "..."
-            
-            questions.append(question)
-            differences.append(diff)
-            winners.append(data['winner'])
-            
-        except:
-            continue
-    
-    # Sort for visualization
-    indices = np.argsort(differences)
-    sorted_differences = [differences[i] for i in indices]
-    sorted_questions = [questions[i] for i in indices]
-    
-    ax4 = fig.add_subplot(gs[2, :])
-    
-    # Set colors
-    colors = ['#4CAF50' if d > 0 else '#2196F3' if d < 0 else '#9E9E9E' for d in sorted_differences]
-    
-    # Create horizontal bar chart
-    ax4.barh(range(len(sorted_differences)), sorted_differences, color=colors)
-    
-    # Add vertical line
-    ax4.axvline(x=0, color='black', linestyle='-', alpha=0.7)
-    
-    # Add labels
-    ax4.set_xlabel('Score Difference (Your Chatbot - GPT-4o-mini)', fontsize=14)
-    ax4.set_yticks(range(len(sorted_questions)))
-    ax4.set_yticklabels(sorted_questions, fontsize=10)
-    ax4.set_title('Most Significant Score Differences by Question', fontsize=16)
-    
-    # Add grid
-    ax4.grid(axis='x', linestyle='--', alpha=0.3)
-    
-    # Add legend
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor='#4CAF50', label='Your Chatbot Better'),
-        Patch(facecolor='#2196F3', label='GPT-4o-mini Better'),
-        Patch(facecolor='#9E9E9E', label='Tie')
-    ]
-    ax4.legend(handles=legend_elements, loc='lower right')
-    
     # Adding title to the figure
-    fig.suptitle('DSA Chatbot Evaluation Results for Beginner Users', fontsize=20, y=0.98)
+    fig.suptitle(f'DSA Chatbot Evaluation Results for {LEVEL.capitalize()} Users', fontsize=20, y=0.98)
     
     plt.tight_layout(rect=[0, 0, 1, 0.97])
-    plt.savefig('evaluation_plots/evaluation_dashboard.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'evaluation_results/{LEVEL}/evaluation_dashboard.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 # Run all visualizations
@@ -530,17 +419,19 @@ def visualize_all_results():
         print("Generating score distribution boxplot...")
         score_distribution = plot_score_distribution()
         
-        print("Generating score differences chart...")
-        difference_analysis = plot_score_differences()
         
         print("Creating comprehensive dashboard...")
         create_evaluation_dashboard()
         
-        print("All visualizations completed and saved to 'evaluation_plots' directory")
+        print(f"All visualizations completed and saved to 'evaluation_results/{LEVEL}' directory")
         return True
     except Exception as e:
         print(f"Error generating visualizations: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 # Generate all visualizations
-visualize_all_results()
+if __name__ == "__main__":
+    print(f"Running visualization for {LEVEL.capitalize()} level")
+    visualize_all_results()

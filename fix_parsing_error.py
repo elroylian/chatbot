@@ -3,7 +3,7 @@ import json
 import re
 
 # Load the dataset
-df = pd.read_csv('graded_evaluation_results.csv')
+df = pd.read_csv('intermediate_graded_evaluation_results.csv',encoding='latin-1')
 
 # Identify rows with JSON parsing errors
 error_mask = df['grading_feedback'].str.contains('JSON parsing error', na=False)
