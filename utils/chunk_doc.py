@@ -205,7 +205,7 @@ def get_retriever():
         #
         search_type="similarity_score_threshold",
         search_kwargs={
-            'k': 15,        # Increased to get more complete context
+            'k': 25,        # Increased to get more complete context
             'score_threshold': 0.8  # Slightly lower to catch related chunks
         },
     )

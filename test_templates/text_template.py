@@ -505,7 +505,7 @@ def expand_ambiguous_question(state: MessageState) -> Dict[str, Any]:
     logger.info("Processing question context and clarification")
     messages = state["messages"]
     user_level = state["user_level"]
-    
+    "HAHAHA"
     try:
         # Get the current question
         current_question = get_message_content(messages[-1])
@@ -542,13 +542,15 @@ def expand_ambiguous_question(state: MessageState) -> Dict[str, Any]:
             logger.info(f"Question processed: '{current_question}' -> '{clarified_question}'")
             return {
                 "messages": [*messages[:-1], HumanMessage(content=clarified_question)], 
-                "user_level": user_level
+                "user_level": user_level,
+                "retrieval_attempts": 0  # Reset retrieval attempts
             }
         else:
             logger.info("No changes needed to question")
             return {
                 "messages": messages, 
-                "user_level": user_level
+                "user_level": user_level,
+                "retrieval_attempts": 0  # Reset retrieval attempts
             }
             
     except Exception as e:
@@ -568,12 +570,11 @@ def evaluate_and_retrieve(state: MessageState) -> Dict[str, Any]:
     logger.info("Evaluating query and deciding whether to retrieve documents")
     messages = state["messages"]
     user_level = state["user_level"]
+    retrieval_attempts = state.get("retrieval_attempts", 0)
     
-    # Get current attempt count or initialize to 0
-    retrieval_attempts = state.get("retrieval_attempts", 0) + 1
     
     # Check if max attempts reached
-    if retrieval_attempts >= 2:
+    if retrieval_attempts >= 5:
         logger.warning(f"Maximum retrieval attempts reached ({retrieval_attempts-1}). Falling back to direct generation.")
         return {
             "messages": messages,
@@ -581,6 +582,9 @@ def evaluate_and_retrieve(state: MessageState) -> Dict[str, Any]:
             "retrieval_attempts": retrieval_attempts,
             "next": "direct_generation"  # Signal to use direct generation
         }
+        
+    # Get current attempt count or initialize to 0
+    retrieval_attempts = state.get("retrieval_attempts", 0) + 1
     
     try:
         # Update attempt counter in state

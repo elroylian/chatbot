@@ -34,10 +34,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CHATBOT_VERSION = "2.2.0"
+CHATBOT_VERSION = "2.3.0"
 DB_FILENAME = "chat.db"
 
-st.sidebar.markdown(f"<div style='margin-bottom: 15px;'><span style='font-weight: bold;'>Version:</span> <code>{CHATBOT_VERSION}</code></div>", unsafe_allow_html=True)
 
 os.environ['LANGCHAIN_TRACING_V2'] = 'true'
 os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
@@ -112,75 +111,83 @@ def clear_session():
             del st.session_state[var]
             
 def analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config):
-    with st.spinner("Assessing your progress...", show_time=True):
-        try:
-            # Get previous topics with error handling
+    # with st.spinner("Assessing your progress...", show_time=True):
+    st.toast('Assessing your progress...')
+    
+    try:
+        # Get previous topics with error handling
+        previous_topics = {}
+        db_topics = db.get_user_topics(user_id)
+        
+        if db_topics:
+            if isinstance(db_topics, dict):
+                previous_topics = db_topics
+            elif isinstance(db_topics, str):
+                try:
+                    previous_topics = json.loads(db_topics)
+                except json.JSONDecodeError:
+                    # If JSON is invalid, use empty dict
+                    previous_topics = {}
+        
+        # Ensure previous_topics is a dictionary
+        if not isinstance(previous_topics, dict):
             previous_topics = {}
-            db_topics = db.get_user_topics(user_id)
-            
-            if db_topics:
-                if isinstance(db_topics, dict):
-                    previous_topics = db_topics
-                elif isinstance(db_topics, str):
-                    try:
-                        previous_topics = json.loads(db_topics)
-                    except json.JSONDecodeError:
-                        # If JSON is invalid, use empty dict
-                        previous_topics = {}
-            
-            # Ensure previous_topics is a dictionary
-            if not isinstance(previous_topics, dict):
-                previous_topics = {}
-            
-            # Run the analyzer
-            analysis_input = {
-                "messages": llm_chat_history,
-                "user_level": user_level,
-                "previous_topics": previous_topics
-            }
+        
+        # Run the analyzer
+        analysis_input = {
+            "messages": llm_chat_history,
+            "user_level": user_level,
+            "previous_topics": previous_topics
+        }
 
-            analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
-            analysis_message = analysis_result["messages"][-1].content
+        analysis_result = analyser_graph.invoke(analysis_input, langgraph_config)
+        analysis_message = analysis_result["messages"][-1].content
+        
+        try:
+            # Extract the level assessment
+            analysis_data = json.loads(analysis_message)
+            user_level = analysis_data.get("current_level")
+            topics = analysis_data.get("topics", {})
             
-            try:
-                # Extract the level assessment
-                analysis_data = json.loads(analysis_message)
-                user_level = analysis_data.get("current_level")
-                topics = analysis_data.get("topics", {})
-                
-                # Ensure topics is a dictionary
-                if not isinstance(topics, dict):
-                    topics = {}
-                
-                # Handle level changes
-                if analysis_data.get("recommendation") == "Promote" and analysis_data.get("confidence", 0) >= 0.8:
-                    new_level = get_next_level(user_level)
-                    db.update_user_level(user_id, new_level)
-                    st.session_state["user_level"] = new_level
-                    st.success(f"Congratulations! You've been promoted to {new_level} level.")
-                
-                elif analysis_data.get("recommendation") == "Demote" and analysis_data.get("confidence", 0) >= 0.9:
-                    new_level = get_previous_level(user_level)
-                    db.update_user_level(user_id, new_level)
-                    st.session_state["user_level"] = new_level
-                    st.info(f"Your level has been adjusted to {new_level}.")
-                
-                # Update the timestamp
-                db.update_analysis_timestamp(user_id)
-                
-                # Merge and save topics (instead of just replacing)
-                merged_topics = merge_topics(previous_topics, topics)
-                db.update_user_topics(user_id, merged_topics)
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"Error parsing analysis message as JSON: {e}")
-                logger.error(f"Raw message: {analysis_message}")
-                
-            except Exception as e:
-                logger.error(f"Error processing analysis result: {e}", exc_info=True)
-                
+            # Ensure topics is a dictionary
+            if not isinstance(topics, dict):
+                topics = {}
+            
+            
+            # Handle level changes            
+            # analyse_test = True 
+            # if analyse_test:
+            if analysis_data.get("recommendation") == "Promote" and analysis_data.get("confidence", 0) >= 0.8:
+                new_level = get_next_level(user_level)
+                db.update_user_level(user_id, new_level)
+                st.session_state["user_level"] = new_level
+                st.toast(f"Congratulations! You've been promoted to {new_level} level.", icon="🎉")
+                # st.success(f"Congratulations! You've been promoted to {new_level} level.")
+            
+            elif analysis_data.get("recommendation") == "Demote" and analysis_data.get("confidence", 0) >= 0.9:
+                new_level = get_previous_level(user_level)
+                db.update_user_level(user_id, new_level)
+                st.session_state["user_level"] = new_level
+                # st.info(f"Your level has been adjusted to {new_level}.")
+                st.toast(f"Your level has been adjusted to {new_level}.", icon="🔁")
+            
+            
+            # Update the timestamp
+            db.update_analysis_timestamp(user_id)
+            
+            # Merge and save topics (instead of just replacing)
+            merged_topics = merge_topics(previous_topics, topics)
+            db.update_user_topics(user_id, merged_topics)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing analysis message as JSON: {e}")
+            logger.error(f"Raw message: {analysis_message}")
+            
         except Exception as e:
-            logger.error(f"Error in analyse_user_progress: {e}", exc_info=True)
+            logger.error(f"Error processing analysis result: {e}", exc_info=True)
+            
+    except Exception as e:
+        logger.error(f"Error in analyse_user_progress: {e}", exc_info=True)
 
 # Helper function to merge topics
 def merge_topics(existing_topics, new_topics):
@@ -245,6 +252,16 @@ def merge_topics(existing_topics, new_topics):
     
     return merged
 
+def user_level_display():
+    current_level = st.session_state.user_level.capitalize()
+    st.markdown(f"""
+    <div style="margin-bottom: 1.5rem;">
+        <span style="font-weight: 500;">Your current level:</span></br>
+        <span style="background-color: #8c52ff; padding: 3px 10px; border-radius: 12px; font-weight: 600;">{current_level}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+
 def auth_page():
     clear_session()
     
@@ -293,7 +310,7 @@ def auth_page():
 
 def chatbot_page():
     st.title("💬DSA Chatbot")
-    st.sidebar.text(f"Welcome, {st.session_state['username']}!")
+    
     
     authenticator.login('unrendered',clear_on_submit=True)
     
@@ -358,99 +375,106 @@ def chatbot_page():
         
     if st.session_state["user_level"].lower() in ["beginner", "intermediate", "advanced"]:
         # Add sidebar options
-        st.sidebar.write("Options")
-        # Clear chat history
-        if st.sidebar.button("Clear Chat History",type='primary'):
-            # st.session_state["llm_chat_history"] = []
-            st.session_state["messages"] = []
+        with st.sidebar:
+            st.markdown(f"<div style='margin-bottom: 15px;'><span style='font-weight: bold;'>Version:</span> <code>{CHATBOT_VERSION}</code></div>", unsafe_allow_html=True)
+            st.text(f"Welcome, {st.session_state['username']}!")
+        
+        with st.sidebar:
+            user_level_display()
             
-            # Reset all graph states
-            memory.storage.clear()
-            current_graph.update_state(values = {"messages": []}, config = langgraph_config)
+        with st.sidebar:
+            st.write("Options")
+            # Clear chat history
+            if st.button("Clear Chat History",type='primary'):
+                # st.session_state["llm_chat_history"] = []
+                
+                st.session_state["messages"] = []
+                # Reset all graph states
+                memory.storage.clear()
+                current_graph.update_state(values = {"messages": []}, config = langgraph_config)
+                
+                db.clear_chat_history(user_id, chat_id)
+                st.toast("Chat history cleared successfully.",icon="✅")
+                analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config)
+                
+                
+            if "uploader_key" not in st.session_state:
+                st.session_state["uploader_key"] = 0
             
-            db.clear_chat_history(user_id, chat_id)
-            st.toast("Chat history cleared successfully.",icon="✅")
-            analyse_user_progress(user_id, llm_chat_history, user_level, langgraph_config)
+            def update_key():
+                st.session_state["uploader_key"] += 1
             
-        if "uploader_key" not in st.session_state:
-            st.session_state["uploader_key"] = 0
-        
-        def update_key():
-            st.session_state["uploader_key"] += 1
-        
-        uploaded_files = st.sidebar.file_uploader("Upload Files", 
-                                                    type=["png", "jpg", "jpeg","pdf"], 
-                                                    accept_multiple_files=True, 
-                                                    key= st.session_state["uploader_key"],
-                                                    )
-        
-        # To be passed as input to the LLM
-        processed_images = []  # For base64 encoded images
-        processed_text = []    # For text content from documents
-        
-        if uploaded_files:
-            for uploaded_file in uploaded_files:
-                if uploaded_file.size > 5 * 1024 * 1024:  # 5MB limit
-                    st.sidebar.error("File too large. Please upload a file smaller than 5MB")
-                    continue
+            uploaded_files = st.sidebar.file_uploader("Upload Files", 
+                                                        type=["png", "jpg", "jpeg","pdf"], 
+                                                        accept_multiple_files=True, 
+                                                        key= st.session_state["uploader_key"],
+                                                        )
+            
+            # To be passed as input to the LLM
+            processed_images = []  # For base64 encoded images
+            processed_text = []    # For text content from documents
+            
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                    if uploaded_file.size > 5 * 1024 * 1024:  # 5MB limit
+                        st.sidebar.error("File too large. Please upload a file smaller than 5MB")
+                        continue
+                        
+                    else:
+                        try:
+                            # Handle different file types
+                            if uploaded_file.type.startswith('image'):
+                                base64_image, processed_image = process_image(uploaded_file)
+                                st.sidebar.image(processed_image, caption="Processed Image")
+                                processed_images.append(base64_image)
+                                st.toast("Image uploaded successfully.",icon="✅")
+                                
+                            elif uploaded_file.type == 'application/pdf':
+                                pdf_documents = process_pdf(uploaded_file)
+                                for doc in pdf_documents:
+                                    processed_text.append(doc)
+                                st.sidebar.success(f"Processed PDF: {uploaded_file.name}")
+                        except Exception as e:
+                            st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
+                            
+            def tester_function():
+                if "tester" in st.session_state["roles"]:
+                    st.sidebar.text("Debug Options (!!!):")
+                    st.write(db.get_user_by_email(st.session_state['email']))
                     
-                else:
-                    try:
-                        # Handle different file types
-                        if uploaded_file.type.startswith('image'):
-                            base64_image, processed_image = process_image(uploaded_file)
-                            st.sidebar.image(processed_image, caption="Processed Image")
-                            processed_images.append(base64_image)
-                            st.toast("Image uploaded successfully.",icon="✅")
-                            
-                        elif uploaded_file.type == 'application/pdf':
-                            pdf_documents = process_pdf(uploaded_file)
-                            for doc in pdf_documents:
-                                processed_text.append(doc)
-                            st.sidebar.success(f"Processed PDF: {uploaded_file.name}")
-                    except Exception as e:
-                        st.sidebar.error(f"Error processing file {uploaded_file.name}: {str(e)}")
-                            
-    def tester_function():
-        if "tester" in st.session_state["roles"]:
-            st.sidebar.text("Debug Options (!!!):")
-            st.write(db.get_user_by_email(st.session_state['email']))
-            
-            # Test options
-            st.sidebar.subheader("Test Options")
-            
-            # Reset User Level
-            if st.sidebar.button("Reset User Level", type='primary'):
-                db.update_user_data(user_info["user_id"], "", st.session_state['email'])
-                st.session_state["user_level"] = ""
-                st.success("User level reset successfully.")
-            
-            # Test LLM Failures
-            st.sidebar.subheader("Test LLM Failures")
-            
-            # Test JSON parsing failure
-            if st.sidebar.button("Test JSON Parse Failure"):
-                st.session_state["test_failure"] = "json_parse"
-                st.info("Next message will simulate JSON parsing failure")
-            
-            # Test LLM timeout
-            if st.sidebar.button("Test LLM Timeout"):
-                st.session_state["test_failure"] = "timeout"
-                st.info("Next message will simulate LLM timeout")
-            
-            # Test LLM error response
-            if st.sidebar.button("Test LLM Error Response"):
-                st.session_state["test_failure"] = "error_response"
-                st.info("Next message will simulate LLM error response")
-            
-            # Clear test state
-            if st.sidebar.button("Clear Test State"):
-                st.session_state.pop("test_failure", None)
-                st.success("Test state cleared")
+                    # Test options
+                    st.sidebar.subheader("Test Options")
+                    
+                    # Reset User Level
+                    if st.sidebar.button("Reset User Level", type='primary'):
+                        db.update_user_data(user_info["user_id"], "", st.session_state['email'])
+                        st.session_state["user_level"] = ""
+                        st.success("User level reset successfully.")
+                    
+                    # Test LLM Failures
+                    st.sidebar.subheader("Test LLM Failures")
+                    
+                    # Test JSON parsing failure
+                    if st.sidebar.button("Test JSON Parse Failure"):
+                        st.session_state["test_failure"] = "json_parse"
+                        st.info("Next message will simulate JSON parsing failure")
+                    
+                    # Test LLM timeout
+                    if st.sidebar.button("Test LLM Timeout"):
+                        st.session_state["test_failure"] = "timeout"
+                        st.info("Next message will simulate LLM timeout")
+                    
+                    # Test LLM error response
+                    if st.sidebar.button("Test LLM Error Response"):
+                        st.session_state["test_failure"] = "error_response"
+                        st.info("Next message will simulate LLM error response")
+                    
+                    # Clear test state
+                    if st.sidebar.button("Clear Test State"):
+                        st.session_state.pop("test_failure", None)
+                        st.success("Test state cleared")
 
-    with st.sidebar:
-        tester_function()
-        pass
+            tester_function()
     
     # Display chat messages from history on app rerun
     if "messages" in st.session_state:
@@ -544,7 +568,7 @@ def chatbot_page():
                     st.write_stream(re.findall(r'\S+|\s+', error_message))
 
             else:
-                with st.spinner("Thinking...",show_time=True):                        
+                with st.spinner("Thinking...",show_time=False):                        
                     # Check if the user input contains any document (images or text from PDFs)
                     if processed_images or processed_text:
                         logger.info("Processing Document/Text Query")
@@ -703,8 +727,9 @@ def learning_page():
                     filtered_topics[parent] = subtopics
             
             # Display total topics count
-            total_topics = sum(len(subtopics) for subtopics in filtered_topics.values())
-            st.sidebar.metric("Total Topics Learned", total_topics)
+            # total_topics = sum(len(subtopics) for subtopics in filtered_topics.values())
+            parent_topics = len(filtered_topics)
+            st.sidebar.metric("Total Topics Learned", parent_topics)
             
             # Display topics in a grid layout
             cols = st.columns(2)
@@ -776,9 +801,9 @@ def learning_page():
                     timestamp_dt = timestamp_dt.replace(tzinfo=datetime.timezone.utc)
                     now_utc = datetime.datetime.now(datetime.timezone.utc)
                     time_diff = now_utc - timestamp_dt
-                    recommendations_stale = time_diff.total_seconds() > 86400  # 24 hours
+                    recommendations_stale = time_diff.total_seconds() > 432,000  # 5 days
                 else:
-                    recommendations_stale = (time.time() - saved_timestamp) > 86400
+                    recommendations_stale = (time.time() - saved_timestamp) > 432,000
             except (ValueError, TypeError) as e:
                 print(f"Error parsing timestamp: {e}")
                 recommendations_stale = True
