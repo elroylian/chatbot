@@ -26,7 +26,7 @@ The DSA Chatbot is built with a modular architecture focused on delivering perso
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.11+
 - OpenAI API key
 - Zilliz Cloud account (or other vector database)
 
@@ -104,7 +104,7 @@ Built with:
 │   ├── level_manager.py    # User level management
 │   ├── model.py            # LLM configuration
 │   └── topic_recommendation.py  # Learning recommendations
-├── test_templates/         # Workflow definitions
+├── templates/         # Workflow definitions
 │   ├── document_text_template.py  # Document processing
 │   ├── intial_template.py  # Initial assessment
 │   ├── memory.py           # State management
