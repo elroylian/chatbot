@@ -1,8 +1,8 @@
-# DSA Chatbot
+# DSA Chatbot with Retrieval Augmented Generation
 
-Aconversational assistant for learning Data Structures and Algorithms that adapts to your level of understanding.
+A conversational assistant for learning Data Structures and Algorithms that adapts to your level of understanding.
 
-![Version](https://img.shields.io/badge/version-2.2.0-blue)
+![Version](https://img.shields.io/badge/version-2.3.0-blue)
 
 ## 🌟 Features
 
@@ -34,7 +34,7 @@ The DSA Chatbot is built with a modular architecture focused on delivering perso
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/dsa-chatbot.git
+git clone https://github.com/elroylian/dsa-chatbot.git
 cd dsa-chatbot
 ```
 
@@ -128,4 +128,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🤝 Contact
 
-For questions or feedback, please open an issue on GitHub or contact [Email](elroy.lian000@gmail.com).
+For questions or feedback, please open an issue on GitHub.

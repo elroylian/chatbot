@@ -56,10 +56,10 @@ authenticator = stauth.Authenticate(
 )
 
 #####################################
-from test_templates.memory import memory
-from test_templates.intial_template import workflow
-from test_templates.document_text_template import document_text_workflow
-from test_templates.text_template import text_workflow
+from templates.memory import memory
+from templates.intial_template import workflow
+from templates.document_text_template import document_text_workflow
+from templates.text_template import text_workflow
 from utils.analyser import analyser_workflow
 
 analyser_graph = analyser_workflow.compile()
